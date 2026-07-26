@@ -822,6 +822,42 @@ button.fig:hover {
   color: var(--gold);
 }
 
+/* Отделка чейза: холо, блёстки, прозрачная, металлик. Радужная заливка —
+   тот же код, что и на самой фигурке. */
+.rarity--finish {
+  background: linear-gradient(
+    100deg,
+    rgba(255, 92, 240, 0.28),
+    rgba(53, 230, 255, 0.28),
+    rgba(255, 210, 63, 0.28)
+  );
+  color: var(--ink);
+}
+
+.tags {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* Подпись отделки на карточке коллекции. Стоит над именем, потому что имя у
+   чейза длинное и без метки непонятно, чем он отличается. */
+.fig__finish {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
 /* ─── Лидерборд ────────────────────────────────────────────────────────── */
 
 .lb {

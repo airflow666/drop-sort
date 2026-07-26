@@ -8,6 +8,7 @@
 import { figurineSvg } from '../theme/figurines';
 import {
   figurineLook,
+  FINISH_LABEL,
   RARITY_LABEL,
   SEASONS,
   seasonById,
@@ -314,11 +315,14 @@ function figurineCell(
   const cell: HTMLElement = owned
     ? button('', className, () => onEquip(fig.key))
     : el('div', className);
+  const what =
+    `${fig.name} — ${RARITY_LABEL[fig.rarity]}` +
+    (fig.finish ? `, ${FINISH_LABEL[fig.finish]}` : '');
   cell.title = active
-    ? `${fig.name} — сейчас на поле`
+    ? `${what}. Сейчас на поле`
     : owned
-      ? `${fig.name} — ${RARITY_LABEL[fig.rarity]}. Нажмите, чтобы выставить на поле`
-      : `${fig.name} — ${RARITY_LABEL[fig.rarity]}`;
+      ? `${what}. Нажмите, чтобы выставить на поле`
+      : what;
 
   // Не полученная фигурка — силуэт без лица и без свечения. Видно, какой
   // именно формы не хватает: это цель, а не серый прямоугольник.
@@ -334,6 +338,11 @@ function figurineCell(
   add(cell, art);
   add(cell, el('div', 'fig__name', { text: owned ? fig.name : '???' }));
   if (count > 1) add(cell, el('span', 'fig__count', { text: `×${count}` }));
+  // Отделка чейза подписана прямо на карточке: с миниатюры 78 пикселей
+  // «блёстки» и «холо» различимы, а вот какое именно — нет.
+  if (owned && fig.finish) {
+    add(cell, el('span', 'fig__finish', { text: FINISH_LABEL[fig.finish] }));
+  }
   if (active) add(cell, el('span', 'fig__on', { text: 'НА ПОЛЕ' }));
   return cell;
 }

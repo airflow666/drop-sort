@@ -9,7 +9,13 @@
  */
 
 import { figurineSvg } from '../theme/figurines';
-import { figurineLook, RARITY_LABEL, type FigurineDef, type Season } from '../theme/seasons';
+import {
+  figurineLook,
+  FINISH_LABEL,
+  RARITY_LABEL,
+  type FigurineDef,
+  type Season,
+} from '../theme/seasons';
 import { add, button, clear, el, formatClock, formatNumber, mountOverlay, plural } from './dom';
 import { STREAK_REWARDS, streakReward } from '../meta/profile';
 
@@ -283,13 +289,22 @@ export function showBoxReveal(
     );
     add(box, reveal);
 
+    const tags = el('div', 'tags');
     add(
-      box,
-      el('h3', 'h2', { text: opts.figurine.name }),
+      tags,
       el('span', `rarity rarity--${opts.figurine.rarity}`, {
         text: RARITY_LABEL[opts.figurine.rarity],
       })
     );
+    // Отделка — то, ради чего чейз и открывают: холо, блёстки, прозрачный
+    // пластик, металлик. Без подписи игрок видит «просто другой цвет».
+    if (opts.figurine.finish) {
+      add(
+        tags,
+        el('span', 'rarity rarity--finish', { text: FINISH_LABEL[opts.figurine.finish] })
+      );
+    }
+    add(box, el('h3', 'h2', { text: opts.figurine.name }), tags);
 
     if (opts.duplicate) {
       add(

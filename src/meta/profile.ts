@@ -22,9 +22,9 @@ import {
   figurineByKey,
   RARITY_WEIGHT,
   seasonById,
+  SLOT_COUNT,
   type FigurineDef,
 } from '../theme/seasons';
-import { SHAPE_IDS, type ShapeId } from '../theme/figurines';
 import type { Platform } from '../platform/sdk';
 
 export const SAVE_VERSION = 1;
@@ -84,7 +84,12 @@ interface SaveShape {
   activeSkin: string;
   /**
    * Какую собранную фигурку игрок выставил на поле вместо стандартной —
-   * силуэт → ключ фигурки. Отсутствующий силуэт означает «как в текущей серии».
+   * номер позиции (0..7) → ключ фигурки. Отсутствующая позиция означает
+   * «как в текущей серии».
+   *
+   * Ключом служит позиция, а не силуэт: у каждой серии свои восемь
+   * персонажей, и «котик» из плюшевой линейки просто не существует в
+   * космической. Позиция же есть всегда, и её понимает ядро.
    */
   loadout: Record<string, string>;
   noAds: boolean;
@@ -219,20 +224,21 @@ export class Profile {
     const rawSettings = (raw.settings ?? {}) as Record<string, unknown>;
     const rawResume = raw.resume as ResumeState | null | undefined;
 
-    // Выставленные на поле фигурки проверяются трижды: ключ существует, силуэт
-    // совпадает с ячейкой и фигурка действительно собрана. Иначе сохранение от
-    // старой версии (или подправленное руками) поставило бы на поле два вида
-    // одного силуэта — и уровень стал бы нерешаемым на вид.
+    // Выставленные на поле фигурки проверяются трижды: ключ существует, позиция
+    // фигурки совпадает с ячейкой и фигурка действительно собрана. Иначе
+    // сохранение от старой версии (или подправленное руками) поставило бы на
+    // поле два одинаковых силуэта — и уровень стал бы нерешаемым на вид.
     const loadout: Record<string, string> = {};
     const rawLoadout = raw.loadout;
     if (rawLoadout && typeof rawLoadout === 'object') {
-      for (const [shape, key] of Object.entries(rawLoadout as Record<string, unknown>)) {
+      for (const [slot, key] of Object.entries(rawLoadout as Record<string, unknown>)) {
         if (typeof key !== 'string') continue;
-        if (!SHAPE_IDS.includes(shape as ShapeId)) continue;
+        const index = Number(slot);
+        if (!Number.isInteger(index) || index < 0 || index >= SLOT_COUNT) continue;
         const fig = ALL_FIGURINES.find((f) => f.key === key);
-        if (!fig || fig.shape !== shape) continue;
+        if (!fig || fig.slot !== index) continue;
         if ((collected[key] ?? 0) <= 0) continue;
-        loadout[shape] = key;
+        loadout[slot] = key;
       }
     }
 
@@ -381,29 +387,28 @@ export class Profile {
   // --- Что стоит на поле --------------------------------------------------
 
   /**
-   * Виды, которые выходят на поле, — ровно по одной фигурке на силуэт и строго
-   * в порядке SHAPE_IDS: ядро адресует вид индексом, а не ключом.
+   * Виды, которые выходят на поле, — ровно восемь, строго по номерам позиций:
+   * ядро адресует вид индексом, а не ключом.
    *
    * По умолчанию это восемь обычных фигурок текущей серии. Любую из них игрок
    * может заменить на собранную — из прошлого сезона или на чейз. Замена
-   * поштучная и только в пределах силуэта, поэтому на поле по-прежнему не может
-   * оказаться двух «звёзд» разной раскраски: вид остаётся однозначно читаемым
-   * по форме, а именно на форму опирается игрок с дальтонизмом.
+   * поштучная и по позиции, поэтому на поле всегда восемь разных силуэтов:
+   * вид остаётся однозначно читаемым по форме, а именно на форму опирается
+   * игрок с дальтонизмом.
    */
   fieldSpecies(seasonId = currentSeasonId()): FigurineDef[] {
     const season = seasonById(seasonId);
-    return SHAPE_IDS.map((shape, i) => {
-      const key = this.data.loadout[shape];
+    return season.playable.map((standard, i) => {
+      const key = this.data.loadout[String(i)];
       const chosen = key ? figurineByKey(key) : undefined;
-      if (chosen && chosen.shape === shape && this.has(key)) return chosen;
-      return season.playable[i];
+      if (chosen && chosen.slot === i && this.has(key)) return chosen;
+      return standard;
     });
   }
 
-  /** Ключ фигурки, выставленной на поле для этого силуэта. */
-  equipped(shape: ShapeId, seasonId = currentSeasonId()): string {
-    const index = SHAPE_IDS.indexOf(shape);
-    return this.fieldSpecies(seasonId)[index]?.key ?? '';
+  /** Ключ фигурки, выставленной на поле в этой позиции. */
+  equipped(slot: number, seasonId = currentSeasonId()): string {
+    return this.fieldSpecies(seasonId)[slot]?.key ?? '';
   }
 
   /**
@@ -413,15 +418,15 @@ export class Profile {
   equip(key: string): boolean {
     const fig = figurineByKey(key);
     if (!fig || !this.has(key)) return false;
-    this.data.loadout[fig.shape] = key;
+    this.data.loadout[String(fig.slot)] = key;
     void this.flush();
     return true;
   }
 
-  /** Вернуть силуэту стандартную фигурку текущей серии. */
-  unequip(shape: ShapeId): void {
-    if (!(shape in this.data.loadout)) return;
-    delete this.data.loadout[shape];
+  /** Вернуть позиции стандартную фигурку текущей серии. */
+  unequip(slot: number): void {
+    if (!(String(slot) in this.data.loadout)) return;
+    delete this.data.loadout[String(slot)];
     void this.flush();
   }
 

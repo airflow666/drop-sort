@@ -24,7 +24,6 @@ import { BoardView } from './render/board-view';
 import { ComboFlash, Particles, Shake } from './render/fx';
 import { figurineTexture, preloadFigurines } from './render/textures';
 import { Tweens } from './render/tween';
-import { SHAPE_IDS } from './theme/figurines';
 import {
   figurineByKey,
   figurineLook,
@@ -352,15 +351,14 @@ export class App {
     const fig = figurineByKey(key);
     if (!fig) return;
 
-    if (this.profile.equipped(fig.shape) === key) {
-      const season = seasonById(this.profile.seasonId);
-      const standard = season.playable[SHAPE_IDS.indexOf(fig.shape)];
+    if (this.profile.equipped(fig.slot) === key) {
+      const standard = seasonById(this.profile.seasonId).playable[fig.slot];
       // Стандартная фигурка серии уже стоит — сбрасывать нечего.
       if (standard.key === key) {
         this.toast('Уже на поле');
         return;
       }
-      this.profile.unequip(fig.shape);
+      this.profile.unequip(fig.slot);
       this.toast(`${standard.name}: как в серии`);
     } else if (!this.profile.equip(key)) {
       return;
