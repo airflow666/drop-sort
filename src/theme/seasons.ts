@@ -185,13 +185,13 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
       glass: '#b8d8e8',
     },
     options: { chrome: true },
-    // mech, cog, bulb, capsule, drone, nut, magnet, battery
+    // mech, cog, bulb, capsule, clock, nut, magnet, battery
     bases: ['#8e93c7', '#c9a87e', '#d8c078', '#7fd6d0', '#92b8cf', '#9fbe8a', '#d98ba0', '#be8fc4'],
     chases: [
       ['cog', '#8f9fa8', 'rare', 'Титан', 'holo'],
       ['mech', '#a8b0c8', 'rare', 'Ртуть', 'clear'],
       ['bulb', '#c8a878', 'rare', 'Латунь', 'glitter'],
-      ['drone', '#e8e4d8', 'legendary', 'Платина', 'gold'],
+      ['clock', '#e8e4d8', 'legendary', 'Платина', 'gold'],
     ],
   },
   {

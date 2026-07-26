@@ -583,22 +583,51 @@ const MECH: Record<string, ShapeDef> = {
     blush: true,
   },
 
-  drone: {
-    name: 'Дрон',
-    body: rr(30, 48, 40, 62, 17),
+  clock: {
+    name: 'Будильник',
+    body: circ(50, 72, 40),
     behind: (c) => {
-      const arm =
-        `<path d="M 34 60 L 14 46" stroke="${c.dark}" stroke-width="6" ` +
+      // Чашки звонка выступают из-за корпуса вверх — по ним будильник
+      // опознаётся мгновенно, даже когда циферблата не разобрать.
+      const bell =
+        `<circle cx="19" cy="36" r="16" fill="${c.base}"/>` +
+        `<path d="M 8 26 A 16 16 0 0 1 28 24" fill="none" stroke="${c.light}" ` +
+        `stroke-width="3.4" opacity=".45" stroke-linecap="round"/>`;
+      const foot = soft(poly([[24, 100], [8, 118], [30, 115]]), c.dark, 5);
+      return (
+        bell +
+        mirror(bell) +
+        // Молоточек между чашками.
+        `<path d="M 50 36 L 50 20" stroke="${c.dark}" stroke-width="4.5" ` +
         `stroke-linecap="round"/>` +
-        `<ellipse cx="14" cy="42" rx="17" ry="5" fill="${c.light}" opacity=".65"/>` +
-        `<circle cx="14" cy="42" r="4" fill="${c.dark}"/>`;
-      return arm + mirror(arm);
+        `<circle cx="50" cy="16" r="6.5" fill="${c.rim}"/>` +
+        `<circle cx="48" cy="14" r="2.2" fill="#ffffff" opacity=".8"/>` +
+        foot +
+        mirror(foot)
+      );
     },
-    front: (c) =>
-      `<circle cx="50" cy="98" r="7" fill="${c.rim}" opacity=".8"/>` +
-      `<circle cx="50" cy="98" r="7" fill="none" stroke="${c.dark}" stroke-width="1.4"/>`,
-    face: { y: 70, gap: 11, size: 0.85, mouthY: 82 },
-    eyes: 'glow',
+    front: (c) => {
+      // Деления циферблата: каждое третье длиннее — это читается как «часы»
+      // без стрелок, которые на 40 пикселях превратились бы в кашу.
+      const ticks = Array.from({ length: 12 }, (_, i) => {
+        const a = (Math.PI / 6) * i - Math.PI / 2;
+        const inner = i % 3 === 0 ? 22 : 24.5;
+        return (
+          `<path d="M ${f(50 + Math.cos(a) * 28)} ${f(72 + Math.sin(a) * 28)} ` +
+          `L ${f(50 + Math.cos(a) * inner)} ${f(72 + Math.sin(a) * inner)}" ` +
+          `stroke="${c.dark}" stroke-width="${i % 3 === 0 ? 2.4 : 1.4}" opacity=".45" ` +
+          `stroke-linecap="round"/>`
+        );
+      }).join('');
+      return (
+        `<circle cx="50" cy="72" r="31" fill="${c.light}" opacity=".45"/>` +
+        `<circle cx="50" cy="72" r="31" fill="none" stroke="${c.dark}" stroke-width="1.8" ` +
+        `opacity=".45"/>` +
+        ticks
+      );
+    },
+    face: { y: 68, gap: 13, mouthY: 84 },
+    blush: true,
   },
 
   nut: {
@@ -1216,7 +1245,7 @@ export type ShapeId = string;
 export const SEASON_SHAPES: ReadonlyArray<readonly ShapeId[]> = [
   ['bot', 'tape', 'bolt', 'heart', 'disc', 'rocket', 'glitch', 'gem'],
   ['bear', 'bunny', 'cat', 'duck', 'frog', 'sheep', 'pig', 'owl'],
-  ['mech', 'cog', 'bulb', 'capsule', 'drone', 'nut', 'magnet', 'battery'],
+  ['mech', 'cog', 'bulb', 'capsule', 'clock', 'nut', 'magnet', 'battery'],
   ['lemon', 'melon', 'cherry', 'pine', 'berry', 'cactus', 'shell', 'pear'],
   ['planet', 'moon', 'star', 'comet', 'ufo', 'sat', 'nebula', 'astro'],
   ['donut', 'cup', 'pop', 'candy', 'slice', 'marsh', 'lolli', 'pudding'],
