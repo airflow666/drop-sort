@@ -13,7 +13,7 @@
     "test:core": "tsx test/core.test.ts",
     "test:levels": "python3 tools/test_generator.py",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
-    "zip": "npm run build && cd dist && zip -qr ../drop-sort.zip . && cd .. && ls -lh drop-sort.zip"
+    "zip": "npm run build && rm -f drop-sort.zip && cd dist && zip -qr ../drop-sort.zip . && cd .. && unzip -l drop-sort.zip"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"
