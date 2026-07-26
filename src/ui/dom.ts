@@ -160,15 +160,25 @@ export function mountOverlay(
   return close;
 }
 
-/** Применить палитру сезона к CSS-переменным — весь интерфейс перекрашивается. */
-export function applyThemeVars(theme: {
-  bgTop: string;
-  bgBottom: string;
-  accent: string;
-  accentAlt: string;
-  frame: string;
-  glass: string;
-}): void {
+/**
+ * Применить палитру сезона к CSS-переменным — весь интерфейс перекрашивается.
+ *
+ * `shape` приходит из надетого скина и меняет скругление кнопок и карточек.
+ * Цвет скина заметен только рядом с предыдущим, а форма — сама по себе:
+ * поэтому «Аркада» с углом в 6 пикселей ощущается другой игрой, а не той же
+ * игрой в другом оттенке. null — скругление как в базовой теме.
+ */
+export function applyThemeVars(
+  theme: {
+    bgTop: string;
+    bgBottom: string;
+    accent: string;
+    accentAlt: string;
+    frame: string;
+    glass: string;
+  },
+  shape?: { radius: number; radiusLg: number } | null
+): void {
   const root = document.documentElement;
   root.style.setProperty('--bg-top', theme.bgTop);
   root.style.setProperty('--bg-bottom', theme.bgBottom);
@@ -176,4 +186,12 @@ export function applyThemeVars(theme: {
   root.style.setProperty('--accent-alt', theme.accentAlt);
   root.style.setProperty('--frame', theme.frame);
   root.style.setProperty('--glass', theme.glass);
+
+  if (shape) {
+    root.style.setProperty('--radius', `${shape.radius}px`);
+    root.style.setProperty('--radius-lg', `${shape.radiusLg}px`);
+  } else {
+    root.style.removeProperty('--radius');
+    root.style.removeProperty('--radius-lg');
+  }
 }

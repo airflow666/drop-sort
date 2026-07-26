@@ -19,15 +19,31 @@ import type { BoardSnapshot } from '../core';
 import {
   ALL_FIGURINES,
   currentSeasonId,
+  figurineByKey,
   RARITY_WEIGHT,
   seasonById,
   type FigurineDef,
 } from '../theme/seasons';
+import { SHAPE_IDS, type ShapeId } from '../theme/figurines';
 import type { Platform } from '../platform/sdk';
 
 export const SAVE_VERSION = 1;
 
 export type GameMode = 'campaign' | 'blitz' | 'daily';
+
+/**
+ * Режим кормит лидерборд, то есть результат сравнивается с чужими.
+ *
+ * В таких режимах за просмотр ролика нельзя КУПИТЬ преимущество: свободная
+ * витрина расшивает тупик, а отмена хода уменьшает счётчик ходов — ровно то
+ * число, по которому ранжируется вызов дня. Тот, кто посмотрел три ролика,
+ * оказывался бы выше того, кто честно решил задачу, и таблица переставала бы
+ * измерять умение. Уже накопленные заряды (подсказки) тратить можно: они у
+ * всех появляются одинаково, покупкой внимания это не является.
+ */
+export function isCompetitive(mode: GameMode): boolean {
+  return mode !== 'campaign';
+}
 
 /** Незавершённая партия — чтобы уровень не терялся при перезагрузке. */
 export interface ResumeState {
@@ -66,10 +82,17 @@ interface SaveShape {
   dailyBestMoves: number;
   ownedSkins: string[];
   activeSkin: string;
+  /**
+   * Какую собранную фигурку игрок выставил на поле вместо стандартной —
+   * силуэт → ключ фигурки. Отсутствующий силуэт означает «как в текущей серии».
+   */
+  loadout: Record<string, string>;
   noAds: boolean;
   settings: Settings;
   /** Сезон, который игрок видел последним — по нему ловится смена сезона. */
   seenSeason: number;
+  /** Вводный гайд уже показан — второй раз он не появится. */
+  tutorialSeen: boolean;
   resume: ResumeState | null;
 }
 
@@ -119,9 +142,11 @@ function defaults(): SaveShape {
     dailyBestMoves: 0,
     ownedSkins: [],
     activeSkin: '',
+    loadout: {},
     noAds: false,
     settings: { muted: false, haptics: true },
     seenSeason: currentSeasonId(),
+    tutorialSeen: false,
     resume: null,
   };
 }
@@ -194,6 +219,23 @@ export class Profile {
     const rawSettings = (raw.settings ?? {}) as Record<string, unknown>;
     const rawResume = raw.resume as ResumeState | null | undefined;
 
+    // Выставленные на поле фигурки проверяются трижды: ключ существует, силуэт
+    // совпадает с ячейкой и фигурка действительно собрана. Иначе сохранение от
+    // старой версии (или подправленное руками) поставило бы на поле два вида
+    // одного силуэта — и уровень стал бы нерешаемым на вид.
+    const loadout: Record<string, string> = {};
+    const rawLoadout = raw.loadout;
+    if (rawLoadout && typeof rawLoadout === 'object') {
+      for (const [shape, key] of Object.entries(rawLoadout as Record<string, unknown>)) {
+        if (typeof key !== 'string') continue;
+        if (!SHAPE_IDS.includes(shape as ShapeId)) continue;
+        const fig = ALL_FIGURINES.find((f) => f.key === key);
+        if (!fig || fig.shape !== shape) continue;
+        if ((collected[key] ?? 0) <= 0) continue;
+        loadout[shape] = key;
+      }
+    }
+
     return {
       v: SAVE_VERSION,
       coins: Math.max(0, num('coins', base.coins)),
@@ -213,12 +255,18 @@ export class Profile {
         ? (raw.ownedSkins as unknown[]).filter((s): s is string => typeof s === 'string')
         : [],
       activeSkin: str('activeSkin', ''),
+      loadout,
       noAds: raw.noAds === true,
       settings: {
         muted: rawSettings.muted === true,
         haptics: rawSettings.haptics !== false,
       },
       seenSeason: num('seenSeason', currentSeasonId()),
+      // Вернувшемуся игроку гайд не показываем: раз в сохранении есть прогресс,
+      // играть он уже умеет, а «обучение» поверх знакомого меню раздражает.
+      tutorialSeen:
+        raw.tutorialSeen === true ||
+        (typeof raw.campaignLevel === 'number' && raw.campaignLevel > 1),
       resume: this.validateResume(rawResume),
     };
   }
@@ -328,6 +376,53 @@ export class Profile {
 
   has(key: string): boolean {
     return (this.data.collected[key] ?? 0) > 0;
+  }
+
+  // --- Что стоит на поле --------------------------------------------------
+
+  /**
+   * Виды, которые выходят на поле, — ровно по одной фигурке на силуэт и строго
+   * в порядке SHAPE_IDS: ядро адресует вид индексом, а не ключом.
+   *
+   * По умолчанию это восемь обычных фигурок текущей серии. Любую из них игрок
+   * может заменить на собранную — из прошлого сезона или на чейз. Замена
+   * поштучная и только в пределах силуэта, поэтому на поле по-прежнему не может
+   * оказаться двух «звёзд» разной раскраски: вид остаётся однозначно читаемым
+   * по форме, а именно на форму опирается игрок с дальтонизмом.
+   */
+  fieldSpecies(seasonId = currentSeasonId()): FigurineDef[] {
+    const season = seasonById(seasonId);
+    return SHAPE_IDS.map((shape, i) => {
+      const key = this.data.loadout[shape];
+      const chosen = key ? figurineByKey(key) : undefined;
+      if (chosen && chosen.shape === shape && this.has(key)) return chosen;
+      return season.playable[i];
+    });
+  }
+
+  /** Ключ фигурки, выставленной на поле для этого силуэта. */
+  equipped(shape: ShapeId, seasonId = currentSeasonId()): string {
+    const index = SHAPE_IDS.indexOf(shape);
+    return this.fieldSpecies(seasonId)[index]?.key ?? '';
+  }
+
+  /**
+   * Выставить собранную фигурку на поле вместо стандартной. Возвращает false,
+   * если фигурка не собрана: витрина не должна показывать то, чего нет.
+   */
+  equip(key: string): boolean {
+    const fig = figurineByKey(key);
+    if (!fig || !this.has(key)) return false;
+    this.data.loadout[fig.shape] = key;
+    void this.flush();
+    return true;
+  }
+
+  /** Вернуть силуэту стандартную фигурку текущей серии. */
+  unequip(shape: ShapeId): void {
+    if (!(shape in this.data.loadout)) return;
+    delete this.data.loadout[shape];
+    void this.flush();
   }
 
   // --- Изменения ----------------------------------------------------------
@@ -549,4 +644,17 @@ export class Profile {
     void this.flush();
   }
 
+  // --- Обучение -----------------------------------------------------------
+
+  get tutorialSeen(): boolean {
+    return this.data.tutorialSeen;
+  }
+
+  markTutorialSeen(): void {
+    if (this.data.tutorialSeen) return;
+    this.data.tutorialSeen = true;
+    // Немедленная запись: если игрок закроет вкладку сразу после гайда,
+    // при следующем заходе он не должен увидеть его снова.
+    void this.flush();
+  }
 }

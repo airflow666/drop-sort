@@ -16,7 +16,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { figurineSvg } from '../src/theme/figurines';
-import { seasonById } from '../src/theme/seasons';
+import { figurineLook, seasonById } from '../src/theme/seasons';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const OUT = 'store/assets';
@@ -47,9 +47,7 @@ function shelf(shapeIndex: number, width: number, count: number, pad: number): s
     .map((_, i) => {
       const bottom = pad + i * step - BOTTOM_PAD * frameH;
       return `<i style="left:${pad}px;bottom:${bottom.toFixed(1)}px;
-        width:${width}px;height:${frameH.toFixed(1)}px">${figurineSvg(fig.shape, fig.colors, {
-          glow: true,
-        })}</i>`;
+        width:${width}px;height:${frameH.toFixed(1)}px">${figurineSvg(fig.shape, fig.colors, figurineLook(fig))}</i>`;
     })
     .join('');
   return `<div class="shelf" style="width:${width + pad * 2}px;

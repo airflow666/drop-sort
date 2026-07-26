@@ -17,7 +17,7 @@ import { writeFileSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { hexToHsl, luminance } from '../src/theme/color';
 import { figurineSvg, VIEWBOX } from '../src/theme/figurines';
-import { SEASONS } from '../src/theme/seasons';
+import { figurineLook, SEASONS } from '../src/theme/seasons';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const TILE = 112;
@@ -67,10 +67,7 @@ for (const season of SEASONS) {
 const rows = SEASONS.map((season) => {
   const cells = season.figurines
     .map((fig) => {
-      const svg = figurineSvg(fig.shape, fig.colors, {
-        glow: true,
-        ...(fig.aura ? { aura: fig.aura } : {}),
-      });
+      const svg = figurineSvg(fig.shape, fig.colors, figurineLook(fig));
       const badge =
         fig.rarity === 'legendary'
           ? '<b class="leg">LEG</b>'

@@ -82,9 +82,9 @@ async function freshMenu(page: Page): Promise<void> {
 /**
  * Начать кампанию.
  *
- * Если предыдущий снимок оставил незаконченную партию, игра сначала спросит
- * «Продолжить партию?» — это штатное поведение, и его надо пройти, иначе HUD
- * не появится вовсе. Именно на этом снимок экрана победы и не получался.
+ * До HUD игра может показать два оверлея, и оба штатные: вводный гайд (один раз
+ * за профиль) и «Продолжить партию?», если предыдущий снимок оставил
+ * незаконченную партию. Оба надо пройти, иначе HUD не появится вовсе.
  */
 async function startCampaign(page: Page): Promise<void> {
   await page.locator('.mode--primary').click();
@@ -92,6 +92,12 @@ async function startCampaign(page: Page): Promise<void> {
   // сразу после клика бесполезно — оверлей монтируется через кадр, count()
   // возвращает ноль, и обработка диалога молча пропускается.
   await page.waitForSelector('.hud__actions, .overlay.is-open .card', { timeout: 10000 });
+
+  // Вводный гайд: листаем до конца по кнопке «Дальше».
+  for (let i = 0; i < 6 && (await page.locator('.tut__art').count()); i++) {
+    await page.locator('.overlay.is-open .card__actions button').first().click();
+    await page.waitForTimeout(280);
+  }
 
   const confirm = page.locator('.overlay.is-open .card');
   if (await confirm.count()) {

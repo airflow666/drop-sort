@@ -253,6 +253,14 @@ button {
   color: #3a2a00;
 }
 
+/* Зарядов не осталось, и добрать их роликом нельзя — соревновательный режим.
+   Нейтральный серый, а не золото: золото здесь означало бы «нажми, будет
+   ролик», а ролика не будет. */
+.icon-btn__badge--empty {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--ink-soft);
+}
+
 /* ─── HUD ──────────────────────────────────────────────────────────────── */
 
 .hud {
@@ -312,6 +320,9 @@ button {
   font-weight: 800;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+  /* Разряды разделяются пробелом, и на четырёхзначной сумме пилюля рвалась
+     на две строки прямо посреди числа. */
+  white-space: nowrap;
 }
 
 .coins::before {
@@ -474,6 +485,26 @@ button {
     color-mix(in srgb, var(--accent-alt) 16%, transparent)
   );
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Надетый скин в магазине — та же рамка акцентом, что и у фигурки на поле. */
+.mode--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+
+/* Миниатюра витрины в карточке скина. Пропорции у неё вертикальные, поэтому
+   она заметно выше квадратного значка — так её и видно. */
+.skin-chip {
+  width: 42px;
+  flex: none;
+  display: block;
+}
+
+.skin-chip svg {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .mode__icon {
@@ -664,6 +695,39 @@ button {
   border: 1px solid var(--stroke);
 }
 
+/* Собранная фигурка — кнопка: тап ставит её на поле вместо стандартной.
+   Padding снизу увеличен, чтобы плашка «НА ПОЛЕ» не легла на подпись. */
+button.fig {
+  padding-bottom: 20px;
+}
+
+button.fig:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Фигурка, стоящая сейчас на поле. Рамка акцентом — тот же код «выбрано»,
+   что и у надетого скина в магазине. */
+.fig--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+  background: color-mix(in srgb, var(--accent) 14%, rgba(0, 0, 0, 0.24));
+}
+
+.fig__on {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  white-space: nowrap;
+}
+
 /* Не полученная фигурка показывается силуэтом: видно, что именно ещё нужно,
    и это работает как цель, а не как пустая клетка. */
 .fig--locked {
@@ -843,6 +907,129 @@ button {
 .streak__day--today {
   border-color: var(--gold);
   box-shadow: 0 0 0 1px var(--gold) inset;
+}
+
+/* ─── Вводный гайд ─────────────────────────────────────────────────────── */
+
+.tut__art {
+  margin: 4px 0 10px;
+}
+
+.tut__scene {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  min-height: 148px;
+}
+
+.tut__slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Фигурка «в руке» висит над витриной — ровно так же, как на поле. */
+.tut__hand {
+  width: 28px;
+  margin-bottom: 4px;
+  animation: tut-hover 1.4s ease-in-out infinite;
+}
+
+/* height: auto обязателен. У встроенного SVG есть атрибут height="150", и он
+   работает как заданная высота: без сброса кадр остаётся 150 пикселей высотой,
+   фигурка ужимается по ширине внутри него, а стопка из четырёх уезжает за
+   пределы витрины. Пропорция берётся из viewBox фигурки. */
+.tut__hand svg,
+.tut__fig svg {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 132 / 150;
+  display: block;
+}
+
+@keyframes tut-hover {
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Витрина: колонка снизу вверх, поэтому column-reverse — первый элемент
+   массива лежит на дне, как и в Board.shelves. */
+.tut__shelf {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: flex-start;
+  width: 36px;
+  height: 130px;
+  padding: 3px;
+  border-radius: var(--radius);
+  border: 2px solid color-mix(in srgb, var(--frame) 90%, transparent);
+  background: rgba(0, 0, 0, 0.32);
+  position: relative;
+  overflow: hidden;
+}
+
+.tut__shelf.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 14px -2px var(--accent);
+}
+
+.tut__shelf.is-available {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+
+/* Закрытая витрина: опущенное стекло поверх содержимого. */
+.tut__shelf.is-closed {
+  border-color: var(--accent);
+}
+
+.tut__shelf.is-closed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--glass) 42%, transparent),
+    color-mix(in srgb, var(--glass) 14%, transparent)
+  );
+  border-top: 3px solid color-mix(in srgb, var(--glass) 85%, transparent);
+}
+
+.tut__fig {
+  width: 28px;
+  flex: none;
+  margin-top: -3px;
+}
+
+/* Стрелка встаёт на уровень середины витрины, а не по центру всей сцены:
+   сцена выше витрины на «фигурку в руке», и по центру сцены стрелка висела бы
+   над шкафами. */
+.tut__arrow {
+  align-self: flex-end;
+  margin-bottom: 54px;
+  font-size: 22px;
+  color: var(--accent);
+}
+
+.tut__dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tut__dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: background-color 0.2s ease;
+}
+
+.tut__dots i.is-on {
+  background: var(--accent);
 }
 
 /* ─── Карточка результата для шеринга ──────────────────────────────────── */

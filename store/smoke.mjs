@@ -130,8 +130,28 @@ check(
 // --- Кампания -------------------------------------------------------------
 phase('запуск кампании');
 await page.locator('.mode--primary').click();
+
+// Перед первой партией показывается вводный гайд. Пролистываем его целиком:
+// заодно проверяем, что кнопка «Дальше» действительно доводит до конца, а не
+// упирается в шаг без выхода.
+const tutorial = page.locator('.overlay.is-open .tut__art');
+await page.waitForSelector('.overlay.is-open .tut__art', { timeout: 6000 });
+check('перед первой партией показан гайд', (await tutorial.count()) === 1);
+const tutorialSteps = await page.locator('.overlay.is-open .tut__dots i').count();
+for (let i = 0; i < tutorialSteps + 1; i++) {
+  const next = page.locator('.overlay.is-open .card__actions button').first();
+  if (!(await next.count())) break;
+  await next.click();
+  await page.waitForTimeout(220);
+}
+check('гайд закрылся до конца', (await page.locator('.tut__art').count()) === 0);
+
 await page.waitForSelector('.hud__actions', { timeout: 8000 });
 check('уровень запустился, HUD на месте', true);
+
+// Соревновательных инструментов в кампании нет — обе кнопки на месте.
+const campaignTools = await page.locator('.hud__actions button:visible').count();
+check('в кампании доступны все три инструмента', campaignTools === 3, `кнопок: ${campaignTools}`);
 
 const gameplayStarted = await page.evaluate(() =>
   (window.__ysdkMockLog ?? []).some((l) => l.includes('GameplayAPI.start'))
@@ -229,6 +249,12 @@ await page.locator('.mode').nth(1).click(); // блиц
 await page.waitForSelector('.timer', { timeout: 8000 });
 const blitzStart = await page.evaluate(() => window.__drop.state());
 check('блиц запустился с таймером', blitzStart.mode === 'blitz' && blitzStart.timeLeft > 50);
+check('гайд второй раз не показывается', (await page.locator('.tut__art').count()) === 0);
+
+// В лидербордных режимах нельзя купить преимущество за ролик: отмена хода и
+// свободная витрина убраны, остаётся только подсказка из накопленных зарядов.
+const blitzTools = await page.locator('.hud__actions button:visible').count();
+check('в блице покупных инструментов нет', blitzTools === 1, `кнопок: ${blitzTools}`);
 await page.screenshot({ path: `${OUT}/smoke-07-blitz.png` });
 
 // Закрытый сет добавляет секунды и очки. Досортировывать уровни целиком тут не
@@ -278,6 +304,44 @@ check('коллекция показывает все 72 фигурки', figs =
 const lockedFigs = await page.locator('.fig--locked').count();
 check('несобранные фигурки показаны силуэтом', lockedFigs > 0, `силуэтов: ${lockedFigs}`);
 await page.screenshot({ path: `${OUT}/smoke-04-collection.png`, fullPage: true });
+
+// --- Замена фигурки на поле ------------------------------------------------
+phase('состав поля');
+
+// Собранной фигурки на чистом профиле ещё нет — открываем бокс за просмотр.
+await page.getByText('Открыть за просмотр').click();
+await page.waitForSelector('.overlay.is-open .reveal', { timeout: 8000 });
+await page.locator('.overlay.is-open .card__actions button').first().click();
+await page.waitForSelector('.grid', { timeout: 5000 });
+
+const ownedCells = page.locator('button.fig');
+check('собранная фигурка стала кнопкой', (await ownedCells.count()) >= 1);
+
+await ownedCells.first().click();
+await page.waitForSelector('.fig--active', { timeout: 5000 });
+check('выставленная фигурка помечена «на поле»', (await page.locator('.fig--active').count()) === 1);
+
+// Повторный тап по той же карточке возвращает стандартную фигурку серии.
+await page.locator('.fig--active').first().click();
+await page.waitForTimeout(500);
+check(
+  'повторный тап снимает фигурку с поля',
+  (await page.locator('.fig--active').count()) <= 1,
+  `помечено: ${await page.locator('.fig--active').count()}`
+);
+
+await page.locator('.screen__head .icon-btn').click(); // назад в меню
+await page.waitForSelector('.brand', { timeout: 5000 });
+
+// --- Магазин ---------------------------------------------------------------
+phase('магазин');
+await page.locator('.menu__row button').nth(1).click();
+await page.waitForSelector('.season-head', { timeout: 5000 });
+const chips = await page.locator('.skin-chip').count();
+check('у каждого скина показана миниатюра витрины', chips >= 5, `миниатюр: ${chips}`);
+await page.screenshot({ path: `${OUT}/smoke-09-shop.png`, fullPage: true });
+await page.locator('.screen__head .icon-btn').click();
+await page.waitForSelector('.brand', { timeout: 5000 });
 
 // --- Итоги ----------------------------------------------------------------
 phase('итоги');

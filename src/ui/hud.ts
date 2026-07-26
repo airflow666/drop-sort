@@ -1,10 +1,15 @@
 /**
  * Игровой HUD: статистика сверху, инструменты снизу.
  *
- * Три кнопки внизу — это три из шести поводов для rewarded (план, §8).
- * Каждая показывает, чем именно за неё платят: цифра — есть бесплатный заряд,
- * значок ▶ — потребуется ролик. Игрок должен видеть цену до нажатия, иначе
- * первый же неожиданный ролик подрывает доверие ко всем остальным.
+ * Кнопки внизу — это поводы для rewarded (план, §8). Каждая показывает, чем
+ * именно за неё платят: цифра — есть бесплатный заряд, значок ▶ — потребуется
+ * ролик. Игрок должен видеть цену до нажатия, иначе первый же неожиданный
+ * ролик подрывает доверие ко всем остальным.
+ *
+ * В соревновательных режимах (вызов дня, блиц) покупных инструментов нет
+ * вовсе — см. isCompetitive в src/meta/profile.ts. Кнопки не «выключаются»,
+ * а убираются: выключенная кнопка читается как «пока недоступно» и заставляет
+ * игрока тыкать в неё, ища условие.
  */
 
 import { add, el, formatNumber, iconButton } from './dom';
@@ -35,6 +40,11 @@ export interface HudState {
   muted: boolean;
   /** Идёт анимация хода или показ рекламы — инструменты недоступны. */
   busy: boolean;
+  /**
+   * Режим кормит лидерборд: покупные за рекламу инструменты скрыты, а
+   * подсказка работает только из накопленных зарядов.
+   */
+  competitive: boolean;
 }
 
 export class Hud {
@@ -121,10 +131,19 @@ export class Hud {
       this.timerEl.classList.toggle('timer--urgent', state.seconds <= 10);
     }
 
-    // Подсказка: бесплатный заряд или ролик.
+    // Отмена хода и свободная витрина покупаются только за ролик, поэтому в
+    // соревновательных режимах их просто нет.
+    this.undoBtn.style.display = state.competitive ? 'none' : '';
+    this.shelfBtn.style.display = state.competitive ? 'none' : '';
+
+    // Подсказка: бесплатный заряд или ролик. В соревновательном режиме
+    // добрать её роликом нельзя — остаются только накопленные заряды.
     if (state.hints > 0) {
       this.hintBadge.textContent = String(state.hints);
       this.hintBadge.className = 'icon-btn__badge';
+    } else if (state.competitive) {
+      this.hintBadge.textContent = '0';
+      this.hintBadge.className = 'icon-btn__badge icon-btn__badge--empty';
     } else {
       this.hintBadge.textContent = '▶';
       this.hintBadge.className = 'icon-btn__badge icon-btn__badge--ad';
@@ -138,7 +157,7 @@ export class Hud {
     // Пока идёт анимация хода или показ рекламы, инструменты недоступны:
     // подсказка посреди летящей фигурки рассинхронизировала бы поле.
     this.undoBtn.disabled = !state.canUndo || state.busy;
-    this.hintBtn.disabled = state.busy;
+    this.hintBtn.disabled = state.busy || (state.competitive && state.hints <= 0);
     this.shelfBtn.disabled = state.busy;
 
     this.soundBtn.textContent = state.muted ? '🔇' : '🔊';

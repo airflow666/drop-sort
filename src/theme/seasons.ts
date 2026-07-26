@@ -3,10 +3,13 @@
  *
  * Шесть серий по 12 фигурок (план, §5). Ядро при этом работает максимум с
  * 8 видами (план, §6), поэтому серия устроена как реальная линейка блайнд-
- * боксов: 8 «обычных» фигурок — по одной на каждый силуэт, они же и стоят на
- * поле, — плюс 4 чейза, редкие перекраски тех же силуэтов. Чейзы не выходят
- * на поле: там важна однозначная читаемость вида, а две розовые звезды с
- * разной отделкой её ломают. Зато именно они дают повод открывать боксы.
+ * боксов: 8 «обычных» фигурок — по одной на каждый силуэт, они и стоят на поле
+ * по умолчанию, — плюс 4 чейза, редкие перекраски тех же силуэтов.
+ *
+ * Любую из восьми позиций поля игрок может заменить на собранную фигурку —
+ * хоть на чейз, хоть на экземпляр из прошлой серии (см. Profile.fieldSpecies).
+ * Замена поштучная и в пределах силуэта: на поле по-прежнему ровно одна
+ * «звезда», ровно один «котик», и вид читается формой, а не только цветом.
  *
  * Раскраска каждой фигурки выводится из одного базового цвета
  * (src/theme/color.ts) — 72 набора оттенков, набранные вручную, неизбежно
@@ -14,7 +17,13 @@
  */
 
 import { colorway, type Colorway, type ColorwayOptions } from './color';
-import { SHAPE_IDS, shapeName, type ShapeId } from './figurines';
+import {
+  SHAPE_IDS,
+  shapeName,
+  type FigurineOptions,
+  type SeasonStyle,
+  type ShapeId,
+} from './figurines';
 
 export type Rarity = 'common' | 'rare' | 'legendary';
 
@@ -26,6 +35,12 @@ export interface FigurineDef {
   name: string;
   rarity: Rarity;
   colors: Colorway;
+  /**
+   * Отделка серии: материал и детали внешности. Хранится в самой фигурке, а не
+   * берётся по номеру сезона на месте отрисовки, — иначе выставленная на поле
+   * фигурка из прошлой серии рисовалась бы в стиле текущей.
+   */
+  style: SeasonStyle;
   /** Светящийся ободок — только у чейзов. */
   aura?: string;
 }
@@ -51,6 +66,8 @@ interface SeasonSpec {
   name: string;
   tagline: string;
   theme: SeasonTheme;
+  /** Отделка фигурок серии — см. STYLES в src/theme/figurines.ts. */
+  style: SeasonStyle;
   options: ColorwayOptions;
   /** Базовые цвета в порядке SHAPE_IDS. */
   bases: readonly string[];
@@ -81,7 +98,8 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
   {
     id: 1,
     name: 'NEON DROP',
-    tagline: 'Первый дроп: кислота и хром',
+    tagline: 'Первый дроп: кислота, неон и наушники',
+    style: 'neon',
     theme: {
       bgTop: '#1c1636',
       bgBottom: '#0b0a14',
@@ -107,7 +125,8 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
   {
     id: 2,
     name: 'ПАСТЕЛЬ',
-    tagline: 'Мягкая серия для спокойных вечеров',
+    tagline: 'Плюш: матовая ткань, швы и банты',
+    style: 'plush',
     theme: {
       bgTop: '#2a2440',
       bgBottom: '#151327',
@@ -130,7 +149,8 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
   {
     id: 3,
     name: 'ХРОМ',
-    tagline: 'Металлик и глубокая тень',
+    tagline: 'Металлик: зеркальный горизонт и заклёпки',
+    style: 'chrome',
     theme: {
       bgTop: '#1a2030',
       bgBottom: '#0a0e16',
@@ -153,7 +173,8 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
   {
     id: 4,
     name: 'ЦИТРУС',
-    tagline: 'Сочная летняя серия',
+    tagline: 'Лето: мокрый глянец, листики и веснушки',
+    style: 'fresh',
     theme: {
       bgTop: '#3a1f2a',
       bgBottom: '#170e14',
@@ -176,7 +197,8 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
   {
     id: 5,
     name: 'ПОЛУНОЧЬ',
-    tagline: 'Драгоценные тона и глубокий фон',
+    tagline: 'Космос: звёздная пыль и нимбы',
+    style: 'cosmic',
     theme: {
       bgTop: '#141a3a',
       bgBottom: '#07081a',
@@ -199,7 +221,8 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
   {
     id: 6,
     name: 'КАРАМЕЛЬ',
-    tagline: 'Финальный дроп сезона',
+    tagline: 'Финальный дроп: глазурь, посыпка, вишенка',
+    style: 'candy',
     theme: {
       bgTop: '#2d1a3a',
       bgBottom: '#120b1a',
@@ -229,6 +252,7 @@ function buildSeason(spec: SeasonSpec): FigurineDef[] {
     name: shapeName(shape),
     rarity: 'common' as Rarity,
     colors: colorway(spec.bases[i], spec.options),
+    style: spec.style,
   }));
 
   const chases: FigurineDef[] = spec.chases.map(([shape, hex, rarity, variant], i) => ({
@@ -238,6 +262,7 @@ function buildSeason(spec: SeasonSpec): FigurineDef[] {
     name: `${shapeName(shape)} · ${variant}`,
     rarity,
     colors: colorway(hex, { ...spec.options, chrome: rarity === 'legendary' || spec.options.chrome }),
+    style: spec.style,
     aura: RARITY_AURA[rarity],
   }));
 
@@ -275,6 +300,16 @@ export function seasonById(id: number): Season {
 
 export function figurineByKey(key: string): FigurineDef | undefined {
   return ALL_FIGURINES.find((f) => f.key === key);
+}
+
+/**
+ * Опции отрисовки, выведенные из самой фигурки: отделка серии и ободок
+ * редкости. Собраны в одном месте, потому что фигурка рисуется в пяти разных
+ * местах (поле, коллекция, бокс, анонс сезона, карточка результата), и любое
+ * забытое поле там выглядит как «в коллекции одна фигурка, а на поле другая».
+ */
+export function figurineLook(fig: FigurineDef, glow = true): FigurineOptions {
+  return { glow, style: fig.style, ...(fig.aura ? { aura: fig.aura } : {}) };
 }
 
 /**

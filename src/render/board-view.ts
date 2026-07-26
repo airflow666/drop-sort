@@ -11,6 +11,7 @@ import { Container, Sprite, Texture } from 'pixi.js';
 import type { Board, Species, TapResult } from '../core';
 import { COMBO_WINDOW } from '../core';
 import type { FigurineDef, SeasonTheme } from '../theme/seasons';
+import type { ShelfStyle } from '../theme/skins';
 import { cachedFigurine, CONTENT_RATIO } from './textures';
 import { ShelfView, shelfMetrics, type ShelfMetrics } from './shelf';
 import type { Particles } from './fx';
@@ -49,6 +50,8 @@ export class BoardView extends Container {
   private readonly board: Board;
   private readonly species: FigurineDef[];
   private readonly theme: SeasonTheme;
+  /** Конструкция витрин: приходит из надетого скина. */
+  private readonly shelfStyle: ShelfStyle;
   private readonly tweens: Tweens;
   private readonly particles: Particles;
   private readonly callbacks: BoardCallbacks;
@@ -73,6 +76,7 @@ export class BoardView extends Container {
     board: Board;
     species: FigurineDef[];
     theme: SeasonTheme;
+    shelfStyle: ShelfStyle;
     tweens: Tweens;
     particles: Particles;
     callbacks?: BoardCallbacks;
@@ -81,6 +85,7 @@ export class BoardView extends Container {
     this.board = opts.board;
     this.species = opts.species;
     this.theme = opts.theme;
+    this.shelfStyle = opts.shelfStyle;
     this.tweens = opts.tweens;
     this.particles = opts.particles;
     this.callbacks = opts.callbacks ?? {};
@@ -103,7 +108,7 @@ export class BoardView extends Container {
   }
 
   private addShelfView(index: number): void {
-    const view = new ShelfView(index, this.metrics, this.theme);
+    const view = new ShelfView(index, this.metrics, this.theme, this.shelfStyle);
     view.on('pointertap', () => void this.tap(index));
     this.shelvesLayer.addChild(view);
     this.shelves[index] = view;

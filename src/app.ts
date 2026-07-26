@@ -15,7 +15,7 @@ import { Application, Container } from 'pixi.js';
 import { Board, findHint, rateLevel, BLITZ_DURATION, BLITZ_TIME_BONUS, blitzSetPoints } from './core';
 import type { LevelSpec } from './core';
 import { blitzLevel, campaignLevel, dailyLevel } from './levels/provider';
-import { BLIND_BOX_COST, Profile, type GameMode } from './meta/profile';
+import { BLIND_BOX_COST, isCompetitive, Profile, type GameMode } from './meta/profile';
 import { Ads } from './platform/ads';
 import { Audio, Haptics } from './platform/audio';
 import type { Platform } from './platform/sdk';
@@ -24,7 +24,15 @@ import { BoardView } from './render/board-view';
 import { ComboFlash, Particles, Shake } from './render/fx';
 import { figurineTexture, preloadFigurines } from './render/textures';
 import { Tweens } from './render/tween';
-import { seasonById, seasonDaysLeft, type FigurineDef, type SeasonTheme } from './theme/seasons';
+import { SHAPE_IDS } from './theme/figurines';
+import {
+  figurineByKey,
+  figurineLook,
+  seasonById,
+  seasonDaysLeft,
+  type FigurineDef,
+  type SeasonTheme,
+} from './theme/seasons';
 import { skinById, themeWithSkin } from './theme/skins';
 import { applyThemeVars, el } from './ui/dom';
 import { Hud, type HudState } from './ui/hud';
@@ -37,6 +45,7 @@ import {
   showPause,
   showSeasonAnnounce,
   showStreak,
+  showTutorial,
   showVictory,
 } from './ui/modals';
 import {
@@ -126,9 +135,8 @@ export class App {
     this.audio.setMuted(this.profile.settings.muted);
     this.haptics.setEnabled(this.profile.settings.haptics);
 
-    const season = seasonById(this.profile.seasonId);
-    this.species = season.playable;
-    applyThemeVars(this.theme());
+    this.species = this.profile.fieldSpecies();
+    this.applyLook();
 
     await this.pixi.init({
       resizeTo: window,
@@ -149,15 +157,9 @@ export class App {
     this.uiRoot = el('div', 'ui');
     root.appendChild(this.uiRoot);
 
-    // Фигурки текущего сезона — единственное, что растеризуется на старте.
-    await preloadFigurines(
-      season.playable.map((fig) => ({
-        shape: fig.shape,
-        colors: fig.colors,
-        cacheKey: fig.key,
-        options: { glow: true },
-      }))
-    );
+    // Фигурки, которые реально выйдут на поле, — единственное, что
+    // растеризуется на старте.
+    await this.preloadSpecies();
 
     // Pixi по умолчанию режет deltaMS до 100 мс (minFPS = 10). Тайминги
     // анимаций у нас временные, поэтому на слабом устройстве, где кадр идёт
@@ -293,6 +295,7 @@ export class App {
       canUndo: session.board.canUndo && !session.view.isBusy,
       muted: this.audio.isMuted,
       busy: session.view.isBusy || this.ads.isBusy,
+      competitive: isCompetitive(session.mode),
     };
     this.hud.update(state);
   }
@@ -316,6 +319,7 @@ export class App {
         onCollection: () => this.showCollection(),
         onShop: () => void this.showShop(),
         onLeaderboard: () => void this.showLeaderboard(),
+        onHowToPlay: () => void this.showTutorialAgain(),
         onToggleSound: () => this.toggleSound(),
       })
     );
@@ -333,7 +337,52 @@ export class App {
         onBuyBox: () => void this.openBox('coins'),
         onAdBox: () => void this.openBox('ad'),
         onExchange: () => void this.openBox('duplicates'),
+        onEquip: (key) => void this.equipFigurine(key),
       })
+    );
+  }
+
+  /**
+   * Выставить собранную фигурку на поле вместо стандартной. Повторный тап по
+   * уже выставленной возвращает силуэту фигурку текущей серии — иначе отменить
+   * выбор было бы нечем, а отдельная кнопка «сбросить» на карточке 78 пикселей
+   * шириной не помещается.
+   */
+  private async equipFigurine(key: string): Promise<void> {
+    const fig = figurineByKey(key);
+    if (!fig) return;
+
+    if (this.profile.equipped(fig.shape) === key) {
+      const season = seasonById(this.profile.seasonId);
+      const standard = season.playable[SHAPE_IDS.indexOf(fig.shape)];
+      // Стандартная фигурка серии уже стоит — сбрасывать нечего.
+      if (standard.key === key) {
+        this.toast('Уже на поле');
+        return;
+      }
+      this.profile.unequip(fig.shape);
+      this.toast(`${standard.name}: как в серии`);
+    } else if (!this.profile.equip(key)) {
+      return;
+    } else {
+      this.toast(`${fig.name} — на поле`);
+    }
+
+    this.audio.tap();
+    this.species = this.profile.fieldSpecies();
+    await this.preloadSpecies();
+    this.showCollection();
+  }
+
+  /** Растеризовать текущий состав поля. Зовётся на старте и после замены вида. */
+  private async preloadSpecies(): Promise<void> {
+    await preloadFigurines(
+      this.species.map((fig) => ({
+        shape: fig.shape,
+        colors: fig.colors,
+        cacheKey: fig.key,
+        options: figurineLook(fig),
+      }))
     );
   }
 
@@ -401,7 +450,7 @@ export class App {
       shape: result.figurine.shape,
       colors: result.figurine.colors,
       cacheKey: result.figurine.key,
-      options: { glow: true, ...(result.figurine.aura ? { aura: result.figurine.aura } : {}) },
+      options: figurineLook(result.figurine),
     });
 
     this.audio.boxOpen();
@@ -458,9 +507,13 @@ export class App {
    */
   private setSkin(id: string): void {
     this.profile.setActiveSkin(id);
-    const theme = this.theme();
-    applyThemeVars(theme);
-    this.background.setTheme(theme);
+    this.applyLook();
+    this.background.setTheme(this.theme());
+  }
+
+  /** Палитра и форма интерфейса по текущему сезону и надетому скину. */
+  private applyLook(): void {
+    applyThemeVars(this.theme(), skinById(this.profile.activeSkin).ui ?? null);
   }
 
   /** Надеть скин по нажатию в магазине — с перерисовкой экрана. */
@@ -508,8 +561,27 @@ export class App {
 
   // --- Запуск режимов -----------------------------------------------------
 
+  /**
+   * Гайд перед первой партией. Показывается ровно один раз и именно здесь, а не
+   * на старте приложения: до нажатия «играть» игрок ещё не просил объяснений,
+   * а после — уже готов слушать. Флаг пишется сразу, чтобы закрытая на середине
+   * вкладка не вернула гайд при следующем заходе.
+   */
+  private async ensureTutorial(): Promise<void> {
+    if (this.profile.tutorialSeen) return;
+    this.profile.markTutorialSeen();
+    await showTutorial(this.uiRoot, this.species);
+  }
+
+  /** Тот же гайд по кнопке в меню — для тех, кто его пропустил или забыл. */
+  private async showTutorialAgain(): Promise<void> {
+    this.audio.tap();
+    await showTutorial(this.uiRoot, this.species);
+  }
+
   private async startCampaign(): Promise<void> {
     this.audio.tap();
+    await this.ensureTutorial();
     const resume = this.profile.resume;
     if (resume?.mode === 'campaign') {
       const keep = await showConfirm(this.uiRoot, {
@@ -553,6 +625,7 @@ export class App {
 
   private async startBlitz(): Promise<void> {
     this.audio.tap();
+    await this.ensureTutorial();
     if (!this.profile.consumeBlitzAttempt()) {
       const watch = await showConfirm(this.uiRoot, {
         title: 'Попытки закончились',
@@ -580,6 +653,7 @@ export class App {
 
   private async startDaily(): Promise<void> {
     this.audio.tap();
+    await this.ensureTutorial();
     const spec = dailyLevel();
     this.beginSession({
       mode: 'daily',
@@ -606,6 +680,7 @@ export class App {
       board: opts.board,
       species: this.species,
       theme: this.theme(),
+      shelfStyle: skinById(this.profile.activeSkin).shelf,
       tweens: this.tweens,
       particles: this.particles,
       callbacks: {
@@ -734,6 +809,11 @@ export class App {
 
     if (this.profile.hints > 0) {
       this.profile.useHint();
+    } else if (isCompetitive(session.mode)) {
+      // Добрать подсказку роликом здесь нельзя: результат идёт в общую
+      // таблицу, а подсказка — это ход от солвера.
+      this.toast('Подсказки закончились');
+      return;
     } else {
       const rewarded = await this.ads.rewarded('hint');
       if (!rewarded) {
@@ -757,6 +837,8 @@ export class App {
   private async useUndo(): Promise<void> {
     const session = this.session;
     if (!session || !session.board.canUndo || session.view.isBusy || this.ads.isBusy) return;
+    // Отмена уменьшает счётчик ходов — именно по нему ранжируется вызов дня.
+    if (isCompetitive(session.mode)) return;
     this.noteInput();
     const rewarded = await this.ads.rewarded('undo');
     if (!rewarded) {
@@ -772,6 +854,9 @@ export class App {
   private async useExtraShelf(): Promise<void> {
     const session = this.session;
     if (!session || session.view.isBusy || this.ads.isBusy) return;
+    // Свободная витрина решает уровень за игрока — в лидербордных режимах её
+    // нет ни кнопкой, ни из тупика.
+    if (isCompetitive(session.mode)) return;
     this.noteInput();
     const rewarded = await this.ads.rewarded('extraShelf');
     if (!rewarded) {
@@ -798,7 +883,9 @@ export class App {
     }
 
     this.platform.gameplayStop();
-    const choice = await showDeadlock(this.uiRoot);
+    const choice = await showDeadlock(this.uiRoot, {
+      canExtraShelf: !isCompetitive(session.mode),
+    });
     if (choice === 'extraShelf') {
       const rewarded = await this.ads.rewarded('extraShelf');
       if (rewarded) {
@@ -924,6 +1011,7 @@ export class App {
       board,
       species: this.species,
       theme: this.theme(),
+      shelfStyle: skinById(this.profile.activeSkin).shelf,
       tweens: this.tweens,
       particles: this.particles,
       callbacks: {

@@ -9,8 +9,8 @@
  */
 
 import { figurineSvg } from '../theme/figurines';
-import { RARITY_LABEL, type FigurineDef, type Season } from '../theme/seasons';
-import { add, button, el, formatClock, formatNumber, mountOverlay, plural } from './dom';
+import { figurineLook, RARITY_LABEL, type FigurineDef, type Season } from '../theme/seasons';
+import { add, button, clear, el, formatClock, formatNumber, mountOverlay, plural } from './dom';
 import { STREAK_REWARDS, streakReward } from '../meta/profile';
 
 function card(title: string, subtitle?: string): { root: HTMLElement; actions: HTMLElement } {
@@ -102,21 +102,35 @@ export type DeadlockChoice = 'extraShelf' | 'restart' | 'menu';
  * Это единственный корректный момент для предложения «+1 витрина» (план, §10):
  * предложение по таймеру игрок воспринимает как навязчивую рекламу, а в тупике
  * — как спасение. Отсюда и порядок кнопок: rewarded первым и самым заметным.
+ *
+ * В соревновательных режимах спасения нет: там тупик — это цена ошибки, и
+ * продавать выход из неё за ролик значило бы продавать место в таблице.
+ * Уровень при этом гарантированно решаем, так что «Заново» — честный выход.
  */
-export function showDeadlock(root: HTMLElement): Promise<DeadlockChoice> {
+export function showDeadlock(
+  root: HTMLElement,
+  opts: { canExtraShelf: boolean }
+): Promise<DeadlockChoice> {
   return new Promise((resolve) => {
     const { root: box, actions } = card(
       'Ходов больше нет',
-      'Все витрины заняты. Свободная витрина расшивает любой тупик.'
+      opts.canExtraShelf
+        ? 'Все витрины заняты. Свободная витрина расшивает любой тупик.'
+        : 'Все витрины заняты. Этот уровень решается — попробуйте другой порядок.'
     );
     let close = () => {};
     const pick = (choice: DeadlockChoice) => {
       close();
       resolve(choice);
     };
+    if (opts.canExtraShelf) {
+      add(
+        actions,
+        button('▶ +1 свободная витрина', 'btn btn--rewarded btn--wide', () => pick('extraShelf'))
+      );
+    }
     add(
       actions,
-      button('▶ +1 свободная витрина', 'btn btn--rewarded btn--wide', () => pick('extraShelf')),
       button('Заново', 'btn btn--ghost btn--wide', () => pick('restart')),
       button('В меню', 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
     );
@@ -151,10 +165,7 @@ export function showBlitzResult(
     const share = el('div', 'share');
     if (opts.trophy) {
       const fig = el('div', 'share__fig');
-      fig.innerHTML = figurineSvg(opts.trophy.shape, opts.trophy.colors, {
-        glow: true,
-        ...(opts.trophy.aura ? { aura: opts.trophy.aura } : {}),
-      });
+      fig.innerHTML = figurineSvg(opts.trophy.shape, opts.trophy.colors, figurineLook(opts.trophy));
       add(share, fig);
     }
     add(
@@ -265,10 +276,11 @@ export function showBoxReveal(
     const { root: box, actions } = card('Блайнд-бокс');
 
     const reveal = el('div', 'reveal');
-    reveal.innerHTML = figurineSvg(opts.figurine.shape, opts.figurine.colors, {
-      glow: true,
-      ...(opts.figurine.aura ? { aura: opts.figurine.aura } : {}),
-    });
+    reveal.innerHTML = figurineSvg(
+      opts.figurine.shape,
+      opts.figurine.colors,
+      figurineLook(opts.figurine)
+    );
     add(box, reveal);
 
     add(
@@ -356,7 +368,7 @@ export function showSeasonAnnounce(root: HTMLElement, season: Season, daysLeft: 
     strip.style.gridTemplateColumns = 'repeat(6, 1fr)';
     for (const fig of season.playable.slice(0, 6)) {
       const cell = el('div', 'fig');
-      cell.innerHTML = figurineSvg(fig.shape, fig.colors, { glow: false });
+      cell.innerHTML = figurineSvg(fig.shape, fig.colors, figurineLook(fig, false));
       strip.appendChild(cell);
     }
     add(box, strip);
@@ -401,6 +413,146 @@ export function showPause(root: HTMLElement): Promise<PauseChoice> {
     add(box, actions);
     close = mountOverlay(root, box, { dismissible: true, onDismiss: () => resolve('resume') });
   });
+}
+
+// ─── Вводный гайд ─────────────────────────────────────────────────────────
+
+/**
+ * Как играть. Показывается один раз — перед первой партией, а дальше только по
+ * кнопке в меню (см. Profile.tutorialSeen).
+ *
+ * Почему картинками, а не текстом: правило «тап — тап» объясняется одним
+ * взглядом на две витрины со стрелкой и не объясняется тремя строчками, которые
+ * никто не читает. Рисуется теми же фигурками и теми же CSS-переменными, что и
+ * игра, поэтому гайд не расходится с тем, что игрок увидит через секунду, — и
+ * не требует ни одной картинки в сборке.
+ *
+ * Шаги короткие и их четыре: правило переноса, правило совпадения, закрытие
+ * витрины и цель уровня. Пятого правила в игре просто нет.
+ */
+export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise<void> {
+  const a = species[1] ?? species[0];
+  const b = species[5] ?? species[species.length - 1];
+
+  const steps: Array<{ title: string; text: string; art: () => HTMLElement }> = [
+    {
+      title: 'Берём фигурку',
+      text: 'Тап по витрине поднимает верхнюю фигурку. Тап по ней же — кладёт обратно.',
+      // Поднятая фигурка нарисована НАД витриной и убрана из стопки: если
+      // оставить её и там, и там, картинка противоречит подписи.
+      art: () =>
+        tutorialScene([
+          { stack: [b, a], state: 'selected', lifted: a },
+          { stack: [b, b] },
+        ]),
+    },
+    {
+      title: 'Ставим к своим',
+      text: 'Второй тап переносит её в пустую витрину или на такую же фигурку. По одной за раз.',
+      art: () =>
+        tutorialScene([
+          { stack: [b], state: 'selected', lifted: a, arrow: true },
+          { stack: [a, a], state: 'available' },
+        ]),
+    },
+    {
+      title: 'Витрина закрывается',
+      text: 'Когда витрина заполнена одним видом целиком, её запирает стекло. Это готовый сет.',
+      art: () =>
+        tutorialScene([
+          { stack: [a, a, a, a], state: 'closed' },
+          { stack: [b, b] },
+        ]),
+    },
+    {
+      title: 'Цель',
+      text: 'Закрыть все витрины. Чем меньше ходов — тем больше звёзд и монет.',
+      art: () =>
+        tutorialScene([
+          { stack: [a, a, a, a], state: 'closed' },
+          { stack: [b, b, b, b], state: 'closed' },
+        ]),
+    },
+  ];
+
+  return new Promise((resolve) => {
+    const box = el('div', 'card');
+    const title = el('h2', 'card__title');
+    const text = el('p', 'card__sub');
+    const art = el('div', 'tut__art');
+    const dots = el('div', 'tut__dots');
+    const actions = el('div', 'card__actions');
+    const next = button('Дальше', 'btn btn--primary btn--wide', () => go(step + 1));
+    const skip = button('Пропустить', 'btn btn--ghost btn--wide btn--sm', () => finish());
+
+    add(box, title, text, art, dots, actions);
+    add(actions, next, skip);
+
+    let step = -1;
+    let close = () => {};
+
+    const finish = () => {
+      close();
+      resolve();
+    };
+
+    const go = (to: number) => {
+      if (to >= steps.length) {
+        finish();
+        return;
+      }
+      step = to;
+      const current = steps[step];
+      title.textContent = current.title;
+      text.textContent = current.text;
+      clear(art);
+      add(art, current.art());
+      clear(dots);
+      for (let i = 0; i < steps.length; i++) {
+        dots.appendChild(el('i', i === step ? 'is-on' : undefined));
+      }
+      const last = step === steps.length - 1;
+      next.innerHTML = last ? 'Играть' : 'Дальше';
+      skip.style.display = last ? 'none' : '';
+    };
+
+    go(0);
+    close = mountOverlay(root, box);
+  });
+}
+
+interface TutorialShelf {
+  /** Фигурки снизу вверх. */
+  stack: FigurineDef[];
+  state?: 'selected' | 'available' | 'closed';
+  /** Эта фигурка нарисована приподнятой над витриной — она «в руке». */
+  lifted?: FigurineDef;
+  arrow?: boolean;
+}
+
+/** Мини-сцена из витрин: та же геометрия, что и на поле, но без Pixi. */
+function tutorialScene(shelves: TutorialShelf[]): HTMLElement {
+  const scene = el('div', 'tut__scene');
+  for (const shelf of shelves) {
+    const wrap = el('div', 'tut__slot');
+    if (shelf.lifted) {
+      const hand = el('div', 'tut__hand');
+      hand.innerHTML = figurineSvg(shelf.lifted.shape, shelf.lifted.colors, {
+        ...figurineLook(shelf.lifted, false),
+      });
+      add(wrap, hand);
+    }
+    const box = el('div', `tut__shelf${shelf.state ? ` is-${shelf.state}` : ''}`);
+    for (const fig of shelf.stack) {
+      const cell = el('div', 'tut__fig');
+      cell.innerHTML = figurineSvg(fig.shape, fig.colors, figurineLook(fig, false));
+      add(box, cell);
+    }
+    add(wrap, box);
+    add(scene, wrap);
+    if (shelf.arrow) add(scene, el('div', 'tut__arrow', { text: '→' }));
+  }
+  return scene;
 }
 
 // ─── Подтверждение ────────────────────────────────────────────────────────

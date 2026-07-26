@@ -7,13 +7,15 @@
 
 import { figurineSvg } from '../theme/figurines';
 import {
+  figurineLook,
   RARITY_LABEL,
   SEASONS,
   seasonById,
   seasonDaysLeft,
   type FigurineDef,
+  type SeasonTheme,
 } from '../theme/seasons';
-import { SKINS } from '../theme/skins';
+import { skinById, skinChipSvg, SKINS, type Skin } from '../theme/skins';
 import type { Profile } from '../meta/profile';
 import { BLIND_BOX_COST, DUPLICATES_PER_BOX } from '../meta/profile';
 import type { CatalogItem, LeaderboardEntry } from '../platform/sdk';
@@ -47,6 +49,8 @@ export interface MenuActions {
   onCollection(): void;
   onShop(): void;
   onLeaderboard(): void;
+  /** Показать вводный гайд ещё раз. */
+  onHowToPlay(): void;
   onToggleSound(): void;
 }
 
@@ -125,7 +129,13 @@ export function createMenu(profile: Profile, actions: MenuActions): Screen {
   add(root, row);
 
   const row2 = el('div', 'menu__row');
-  add(row2, button('Лидеры', 'btn btn--ghost btn--sm', actions.onLeaderboard, { style: 'flex:1' }));
+  add(
+    row2,
+    button('Лидеры', 'btn btn--ghost btn--sm', actions.onLeaderboard, { style: 'flex:1' }),
+    // Гайд сам показывается один раз перед первой партией; кнопка нужна тем,
+    // кто его пропустил, и тем, кто вернулся через месяц.
+    button('Как играть', 'btn btn--ghost btn--sm', actions.onHowToPlay, { style: 'flex:1' })
+  );
   add(root, row2);
 
   // Полоса сезона: показывает, что серия конечна и её надо успеть собрать.
@@ -185,6 +195,8 @@ export interface CollectionActions {
   onAdBox(): void;
   /** Обменять дубликаты на бокс. */
   onExchange(): void;
+  /** Выставить собранную фигурку на поле вместо стандартной. */
+  onEquip(key: string): void;
 }
 
 export function createCollection(profile: Profile, actions: CollectionActions): Screen {
@@ -229,6 +241,18 @@ export function createCollection(profile: Profile, actions: CollectionActions): 
   const current = profile.seasonId;
   const ordered = [seasonById(current), ...SEASONS.filter((s) => s.id !== current)];
 
+  // Что именно сейчас стоит на поле — по одному ключу на силуэт.
+  const onField = new Set(profile.fieldSpecies(current).map((fig) => fig.key));
+
+  add(
+    body,
+    el('p', 'muted', {
+      text:
+        'Нажмите на собранную фигурку — она выйдет на поле вместо стандартной. ' +
+        'Каждый силуэт меняется отдельно.',
+    })
+  );
+
   for (const season of ordered) {
     const progress = profile.seasonProgress(season.id);
     const isCurrent = season.id === current;
@@ -253,7 +277,17 @@ export function createCollection(profile: Profile, actions: CollectionActions): 
 
     const grid = el('div', 'grid');
     for (const fig of season.figurines) {
-      grid.appendChild(figurineCell(fig, profile.ownedCount(fig.key)));
+      // Плашка «на поле» ставится только собранной фигурке. Стандартный набор
+      // серии стоит на поле и без коллекции, но помечать этим силуэт-заглушку
+      // нельзя: получилось бы «этой фигурки у вас нет, и она сейчас на поле».
+      grid.appendChild(
+        figurineCell(
+          fig,
+          profile.ownedCount(fig.key),
+          onField.has(fig.key) && profile.has(fig.key),
+          actions.onEquip
+        )
+      );
     }
     add(body, grid);
   }
@@ -262,19 +296,35 @@ export function createCollection(profile: Profile, actions: CollectionActions): 
   return { root, destroy: () => root.remove() };
 }
 
-function figurineCell(fig: FigurineDef, count: number): HTMLElement {
+/**
+ * Карточка фигурки. Собранная — это кнопка: тап выставляет фигурку на поле.
+ * Не собранная остаётся неинтерактивным силуэтом, иначе игрок нажимал бы на
+ * заглушку и не понимал, почему ничего не происходит.
+ */
+function figurineCell(
+  fig: FigurineDef,
+  count: number,
+  active: boolean,
+  onEquip: (key: string) => void
+): HTMLElement {
   const owned = count > 0;
-  const cell = el(
-    'div',
-    `fig${owned ? '' : ' fig--locked'}${fig.rarity !== 'common' ? ` fig--${fig.rarity}` : ''}`
-  );
-  cell.title = `${fig.name} — ${RARITY_LABEL[fig.rarity]}`;
+  const className =
+    `fig${owned ? '' : ' fig--locked'}` +
+    `${fig.rarity !== 'common' ? ` fig--${fig.rarity}` : ''}${active ? ' fig--active' : ''}`;
+  const cell: HTMLElement = owned
+    ? button('', className, () => onEquip(fig.key))
+    : el('div', className);
+  cell.title = active
+    ? `${fig.name} — сейчас на поле`
+    : owned
+      ? `${fig.name} — ${RARITY_LABEL[fig.rarity]}. Нажмите, чтобы выставить на поле`
+      : `${fig.name} — ${RARITY_LABEL[fig.rarity]}`;
 
   // Не полученная фигурка — силуэт без лица и без свечения. Видно, какой
   // именно формы не хватает: это цель, а не серый прямоугольник.
   const art = el('div');
   art.innerHTML = owned
-    ? figurineSvg(fig.shape, fig.colors, { glow: true, ...(fig.aura ? { aura: fig.aura } : {}) })
+    ? figurineSvg(fig.shape, fig.colors, figurineLook(fig))
     : figurineSvg(
         fig.shape,
         { ...fig.colors, base: '#2a2740', light: '#3b3757', dark: '#1a1830', rim: '#4a4568', ink: '#12111f', glow: '#2a2740' },
@@ -284,6 +334,7 @@ function figurineCell(fig: FigurineDef, count: number): HTMLElement {
   add(cell, art);
   add(cell, el('div', 'fig__name', { text: owned ? fig.name : '???' }));
   if (count > 1) add(cell, el('span', 'fig__count', { text: `×${count}` }));
+  if (active) add(cell, el('span', 'fig__on', { text: 'НА ПОЛЕ' }));
   return cell;
 }
 
@@ -369,7 +420,7 @@ export const SHOP_PRODUCTS: readonly Omit<ShopProduct, 'price'>[] = [
   {
     id: 'skin_chrome',
     title: 'Скин витрин «Хром»',
-    description: 'Металлические рамы и холодная подсветка. Только внешний вид.',
+    description: 'Полированный металл: фаска с бликом по кромке. Только внешний вид.',
   },
 ];
 
@@ -400,13 +451,20 @@ export function createShop(
   // --- Скины витрин за монеты ---------------------------------------------
   // Товар за валюту нужен обязательно: без него монетам некуда деваться, кроме
   // блайнд-боксов, и накопления обесцениваются, едва серия собрана.
-  add(body, el('div', 'season-head', { html: '<b>ВИТРИНЫ</b><span>только внешний вид</span>' }));
+  const seasonTheme = seasonById(profile.seasonId).theme;
+  add(
+    body,
+    el('div', 'season-head', { html: '<b>ВИТРИНЫ</b><span>только внешний вид</span>' }),
+    el('p', 'tiny', {
+      text: 'Скин меняет конструкцию витрины и форму интерфейса — на правила это не влияет.',
+    })
+  );
   for (const skin of SKINS) {
     if (skin.coins === null && skin.id !== '') continue; // за деньги — ниже, в общем списке
     const owned = skin.id === '' || profile.ownsSkin(skin.id);
     const active = profile.activeSkin === skin.id;
 
-    const card = el('div', 'mode');
+    const card = el('div', `mode${active ? ' mode--active' : ''}`);
     const text = el('span', 'mode__text');
     add(
       text,
@@ -426,7 +484,7 @@ export function createShop(
       buy.disabled = profile.coins < (skin.coins ?? 0);
       action = buy;
     }
-    add(card, el('span', 'mode__icon', { text: active ? '✓' : '▤' }), text, action);
+    add(card, skinChip(skin, seasonTheme), text, action);
     add(body, card);
   }
 
@@ -460,10 +518,24 @@ export function createShop(
       action.disabled = true;
     }
 
-    add(card, el('span', 'mode__icon', { text: owned ? '✓' : '★' }), text, action);
+    // Скин показывается миниатюрой витрины, остальные товары — значком:
+    // «10 подсказок» рисовать нечем, а скин без картинки не выбрать.
+    const icon = product.id.startsWith('skin_')
+      ? skinChip(skinById(product.id), seasonTheme)
+      : el('span', 'mode__icon', { text: owned ? '✓' : '★' });
+    if (isActiveSkin) card.classList.add('mode--active');
+
+    add(card, icon, text, action);
     add(body, card);
   }
 
   add(root, body);
   return { root, destroy: () => root.remove() };
+}
+
+/** Миниатюра витрины со скином — по описанию конструкцию не выбрать. */
+function skinChip(skin: Skin, theme: SeasonTheme): HTMLElement {
+  const chip = el('span', 'skin-chip', { html: skinChipSvg(skin, theme) });
+  chip.setAttribute('aria-hidden', 'true');
+  return chip;
 }

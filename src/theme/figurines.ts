@@ -22,6 +22,16 @@
  * снизу → контровой свет по нижне-правому краю → мягкий блик сверху-слева →
  * острый блик → лицо. Контровой свет — самый важный слой: без него фигурка
  * читается как плоское пятно.
+ *
+ * ── Почему у сезона есть стиль, а не только палитра ────────────────────────
+ * Шесть серий на одних и тех же восьми силуэтах различались только цветом, и
+ * рядом в витрине коллекции выглядели одной и той же линейкой в шести
+ * оттенках — то есть повода собирать новую серию не возникало. Поэтому у
+ * сезона теперь есть СТИЛЬ (см. STYLES ниже): материал (матовый плюш,
+ * зеркальный хром, глазурь) и набор деталей внешности — наушники, бант,
+ * болты, листик, нимб, посыпка. Силуэт при этом не трогается ни одним
+ * стилем: вид фигурки по-прежнему кодируется формой, и поле остаётся
+ * читаемым в оттенках серого.
  */
 
 import type { Colorway } from './color';
@@ -63,6 +73,15 @@ interface ShapeDef {
   face: { y: number; gap: number; size?: number };
   eyes?: EyeStyle;
   blush?: boolean;
+  /**
+   * Куда садится аксессуар сезона (бант, листик, нимб, наушники).
+   * Точка своя у каждого силуэта: у зайки между ушами свободно, у дино на её
+   * месте гребень, у пришельца справа торчит антенна. Общей формулы «верх
+   * корпуса» тут нет — она бы у половины видов попала внутрь другой детали.
+   */
+  crown: { x: number; y: number };
+  /** Половина ширины головы на уровне лица — по ней строится дужка наушников. */
+  headHalf: number;
 }
 
 // --- Вспомогательные построители контуров -----------------------------------
@@ -134,6 +153,8 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
     face: { y: 86, gap: 15 },
     eyes: 'sparkle',
     blush: true,
+    crown: { x: 50, y: 30 },
+    headHalf: 40,
   },
 
   // Треугольные уши — самый узнаваемый силуэт после звезды.
@@ -150,6 +171,8 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
     },
     face: { y: 80, gap: 15 },
     blush: true,
+    crown: { x: 50, y: 34 },
+    headHalf: 42,
   },
 
   // Круглые уши + светлая морда: отличается от кота именно скруглением.
@@ -171,6 +194,8 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
     },
     face: { y: 76, gap: 14 },
     blush: true,
+    crown: { x: 50, y: 32 },
+    headHalf: 42,
   },
 
   // Длинные вертикальные уши — читаются даже на 40 пикселях.
@@ -189,6 +214,9 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
     },
     face: { y: 80, gap: 14 },
     blush: true,
+    // Между ушами зайки ровно та полоса, куда просится бант.
+    crown: { x: 50, y: 28 },
+    headHalf: 42,
   },
 
   // Волнистый низ вместо ног. Без румян — призрак должен быть чуть холоднее.
@@ -201,6 +229,8 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
       'L 9 72 C 9 45, 24 20, 50 20 Z',
     face: { y: 66, gap: 16, size: 1.1 },
     eyes: 'round',
+    crown: { x: 50, y: 22 },
+    headHalf: 40,
   },
 
   // Единственный радиально-симметричный силуэт — контрастирует со всеми.
@@ -210,6 +240,9 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
     face: { y: 70, gap: 13, size: 0.9 },
     eyes: 'sparkle',
     blush: true,
+    // Верхний луч звезды узкий — аксессуар садится на его основание.
+    crown: { x: 50, y: 34 },
+    headHalf: 34,
   },
 
   // Гребень шипов по верху и светлое брюшко.
@@ -234,6 +267,9 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
       `<path d="M 34 104 Q 50 112, 66 104" stroke="${c.dark}" stroke-width="2" ` +
       `fill="none" opacity=".35"/>`,
     face: { y: 74, gap: 16 },
+    // На макушке дино гребень, поэтому аксессуар уходит вбок, на левый шип.
+    crown: { x: 29, y: 22 },
+    headHalf: 42,
   },
 
   // Широкий череп, сужающийся к подбородку, и одна антенна. Обычное «яйцо»
@@ -250,6 +286,9 @@ const SHAPES: Record<ShapeId, ShapeDef> = {
       `<circle cx="63" cy="4" r="2.4" fill="#ffffff" opacity=".8"/>`,
     face: { y: 78, gap: 18, size: 1.15 },
     eyes: 'almond',
+    // Справа торчит антенна — аксессуар садится слева от неё.
+    crown: { x: 34, y: 32 },
+    headHalf: 44,
   },
 };
 
@@ -311,6 +350,281 @@ function blush(def: ShapeDef, c: Colorway): string {
   return cheek(50 - gap - 10 * s) + cheek(50 + gap + 10 * s);
 }
 
+// --- Стили сезонов ----------------------------------------------------------
+
+/**
+ * Стиль серии. Определяет материал (насколько фигурка глянцевая) и детали
+ * внешности. Стиль НЕ меняет силуэт: вид фигурки читается формой, и любая
+ * подмена контура сломала бы второй канал кодирования вида.
+ */
+export type SeasonStyle = 'neon' | 'plush' | 'chrome' | 'fresh' | 'cosmic' | 'candy';
+
+interface StyleDef {
+  /** Мягкий широкий блик: 0 — матовая ткань, 1 — сильный глянец. */
+  spec: number;
+  /** Острый блик-точка. У плюша его нет вовсе — ткань так не блестит. */
+  sharp: number;
+  /** Толщина контрового света. */
+  rim: number;
+  /** Множитель запечённого свечения. 0 — свечения нет даже при glow: true. */
+  halo: number;
+  /** Детали, повторяющие силуэт: рисуются внутри клипа корпуса. */
+  onBody?(c: Colorway, def: ShapeDef): string;
+  /** Аксессуар на макушке — поверх всех слоёв. */
+  crown?(c: Colorway, def: ShapeDef): string;
+  /** Дополнение к лицу: веснушки, шов вместо рта, звёздный блик. */
+  onFace?(c: Colorway, def: ShapeDef): string;
+}
+
+/** Точки звёздной пыли для «Полуночи» — фиксированные, чтобы не мерцали. */
+const DUST: ReadonlyArray<readonly [number, number, number]> = [
+  [26, 52, 1.6],
+  [70, 44, 2.1],
+  [82, 70, 1.4],
+  [18, 82, 1.8],
+  [58, 96, 1.3],
+  [38, 66, 1.1],
+  [76, 100, 1.6],
+];
+
+/** Посыпка на глазури: x, y, поворот. */
+const SPRINKLES: ReadonlyArray<readonly [number, number, number]> = [
+  [26, 44, -28],
+  [42, 34, 18],
+  [60, 40, -12],
+  [76, 52, 34],
+  [34, 56, 42],
+  [66, 62, -40],
+];
+
+const STYLES: Record<SeasonStyle, StyleDef> = {
+  // Первый дроп: кислота и хром. Материал прежний — глянцевый винил, а
+  // характер серии дают наушники и световые полосы по корпусу.
+  neon: {
+    spec: 0.62,
+    sharp: 0.8,
+    rim: 7,
+    halo: 1,
+    onBody: (c) =>
+      [0.46, 0.6].map(
+        (t) =>
+          `<rect x="0" y="${f(120 * t)}" width="100" height="3" fill="${c.rim}" opacity=".3"/>`
+      ).join(''),
+    crown: (c, def) => {
+      const { x, y } = def.crown;
+      const r = def.headHalf - 2;
+      const cupY = def.face.y - 14;
+      const cup = (cx: number) =>
+        `<rect x="${f(cx - 7)}" y="${f(cupY - 9)}" width="14" height="19" rx="6.5" ` +
+        `fill="${c.dark}"/>` +
+        `<rect x="${f(cx - 4.4)}" y="${f(cupY - 6)}" width="8.8" height="13" rx="4.2" ` +
+        `fill="${c.rim}" opacity=".85"/>`;
+      return (
+        // Дужка идёт от одной чашки к другой через точку макушки.
+        `<path d="M ${f(x - r)} ${f(cupY - 4)} Q ${f(x)} ${f(y - 12)} ${f(x + r)} ${f(cupY - 4)}" ` +
+        `stroke="${c.dark}" stroke-width="5.5" fill="none" stroke-linecap="round"/>` +
+        `<path d="M ${f(x - r)} ${f(cupY - 4)} Q ${f(x)} ${f(y - 9)} ${f(x + r)} ${f(cupY - 4)}" ` +
+        `stroke="${c.rim}" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".9"/>` +
+        cup(x - r) +
+        cup(x + r)
+      );
+    },
+  },
+
+  // Мягкая серия: плюш. Блики убраны почти в ноль — ткань не бликует, и
+  // именно отсутствие блика отличает её от всех остальных на расстоянии.
+  plush: {
+    spec: 0.2,
+    sharp: 0,
+    rim: 5,
+    halo: 0.35,
+    onBody: (c, def) => {
+      const seam = def.face.y + 24;
+      return (
+        // Шов по центру нижней части корпуса.
+        `<path d="M 50 ${f(seam)} L 50 118" stroke="${c.dark}" stroke-width="1.8" ` +
+        `stroke-dasharray="4 4" stroke-linecap="round" opacity=".5"/>` +
+        // Заплатка сбоку — с прострочкой по контуру.
+        `<rect x="14" y="${f(seam - 6)}" width="17" height="17" rx="5" ` +
+        `transform="rotate(-12 22 ${f(seam + 2)})" fill="${c.light}" opacity=".6"/>` +
+        `<rect x="14" y="${f(seam - 6)}" width="17" height="17" rx="5" ` +
+        `transform="rotate(-12 22 ${f(seam + 2)})" fill="none" stroke="${c.dark}" ` +
+        `stroke-width="1.4" stroke-dasharray="3 3" opacity=".55"/>`
+      );
+    },
+    crown: (c, def) => {
+      const { x, y } = def.crown;
+      // Петля банта — замкнутая «капля» вбок от узла. Через одну кривую она
+      // получалась тонким серпом и на 40 пикселях читалась как царапина.
+      const loop = (dir: number) =>
+        `<path d="M ${f(x)} ${f(y)} C ${f(x + 9 * dir)} ${f(y - 16)}, ` +
+        `${f(x + 26 * dir)} ${f(y - 14)}, ${f(x + 25 * dir)} ${f(y - 1)} ` +
+        `C ${f(x + 24 * dir)} ${f(y + 11)}, ${f(x + 10 * dir)} ${f(y + 10)}, ` +
+        `${f(x)} ${f(y)} Z" fill="${c.light}" stroke="${c.dark}" stroke-width="1.7" ` +
+        `stroke-linejoin="round"/>`;
+      return (
+        loop(-1) +
+        loop(1) +
+        `<circle cx="${f(x)}" cy="${f(y)}" r="5.4" fill="${c.rim}" ` +
+        `stroke="${c.dark}" stroke-width="1.5"/>`
+      );
+    },
+    // Рот-строчка вместо дуги: у плюшевой игрушки он вышит.
+    onFace: (c, def) => {
+      const s = def.face.size ?? 1;
+      const my = def.face.y + 13 * s;
+      return (
+        `<path d="M ${f(50 - 6 * s)} ${f(my)} L ${f(50 + 6 * s)} ${f(my)}" stroke="${c.ink}" ` +
+        `stroke-width="${f(1.8 * s)}" stroke-dasharray="2.6 2.4" stroke-linecap="round"/>`
+      );
+    },
+  },
+
+  // Металлик: зеркальный горизонт поперёк корпуса плюс заклёпки. Горизонт —
+  // главный признак хрома: без тёмной полосы с бликом под ней металл
+  // читается просто как светло-серый пластик.
+  chrome: {
+    spec: 0.9,
+    sharp: 1,
+    rim: 8,
+    halo: 0.5,
+    onBody: (c, def) => {
+      const h = def.face.y + 12;
+      const rivet = (x: number, y: number) =>
+        `<circle cx="${f(x)}" cy="${f(y)}" r="2.6" fill="${c.dark}" opacity=".75"/>` +
+        `<circle cx="${f(x - 0.7)}" cy="${f(y - 0.8)}" r="1.1" fill="${c.rim}" opacity=".9"/>`;
+      return (
+        `<rect x="0" y="${f(h)}" width="100" height="9" fill="${c.dark}" opacity=".55"/>` +
+        `<rect x="0" y="${f(h + 9)}" width="100" height="5" fill="#ffffff" opacity=".38"/>` +
+        rivet(16, h + 22) +
+        rivet(50, h + 27) +
+        rivet(84, h + 22)
+      );
+    },
+    // Шестигранная гайка на макушке — «собран на заводе».
+    crown: (c, def) => {
+      const { x, y } = def.crown;
+      const r = 9;
+      const pts = Array.from({ length: 6 }, (_, i) => {
+        const a = (Math.PI / 3) * i - Math.PI / 2;
+        return `${f(x + Math.cos(a) * r)} ${f(y + Math.sin(a) * r)}`;
+      }).join(' L ');
+      return (
+        `<path d="M ${pts} Z" fill="${c.light}" stroke="${c.dark}" stroke-width="1.6" ` +
+        `stroke-linejoin="round"/>` +
+        `<circle cx="${f(x)}" cy="${f(y)}" r="3.4" fill="${c.dark}" opacity=".7"/>`
+      );
+    },
+  },
+
+  // Сочная летняя серия: мокрый глянец, листик и веснушки.
+  fresh: {
+    spec: 0.75,
+    sharp: 0.95,
+    rim: 7,
+    halo: 0.8,
+    // Листик — единственная деталь во всей игре, которая НЕ выводится из цвета
+    // фигурки: зелёный лист на оранжевом корпусе и есть та самая «свежесть»
+    // серии, а перекрашенный в тон корпуса он читается как царапина.
+    crown: (c, def) => {
+      const { x, y } = def.crown;
+      const blade = mix(c.light, '#78d345', 0.78);
+      const edge = mix(c.dark, '#2c6b24', 0.7);
+      return (
+        `<path d="M ${f(x)} ${f(y + 10)} C ${f(x - 2)} ${f(y + 1)}, ${f(x + 1)} ${f(y - 6)}, ` +
+        `${f(x + 3)} ${f(y - 13)}" stroke="${edge}" stroke-width="3" fill="none" ` +
+        `stroke-linecap="round"/>` +
+        `<path d="M ${f(x + 2)} ${f(y - 3)} C ${f(x + 8)} ${f(y - 20)}, ${f(x + 26)} ${f(y - 17)}, ` +
+        `${f(x + 24)} ${f(y - 4)} C ${f(x + 22)} ${f(y + 6)}, ${f(x + 7)} ${f(y + 6)}, ` +
+        `${f(x + 2)} ${f(y - 3)} Z" fill="${blade}" stroke="${edge}" stroke-width="1.5" ` +
+        `stroke-linejoin="round"/>` +
+        `<path d="M ${f(x + 5)} ${f(y - 2)} Q ${f(x + 15)} ${f(y - 6)}, ${f(x + 22)} ${f(y - 6)}" ` +
+        `stroke="${edge}" stroke-width="1.2" fill="none" opacity=".6"/>`
+      );
+    },
+    onFace: (c, def) => {
+      const { y, gap } = def.face;
+      const s = def.face.size ?? 1;
+      const dot = (x: number, dy: number) =>
+        `<circle cx="${f(x)}" cy="${f(y + dy * s)}" r="${f(1.3 * s)}" fill="${c.dark}" ` +
+        `opacity=".5"/>`;
+      const cheek = (side: number) =>
+        dot(50 + side * (gap + 8 * s), 5) +
+        dot(50 + side * (gap + 13 * s), 8) +
+        dot(50 + side * (gap + 10 * s), 11);
+      return cheek(-1) + cheek(1);
+    },
+  },
+
+  // Драгоценная серия: звёздная пыль внутри корпуса и нимб над головой.
+  cosmic: {
+    spec: 0.5,
+    sharp: 0.7,
+    rim: 8,
+    halo: 1.3,
+    onBody: (c) =>
+      DUST.map(
+        ([x, y, r]) =>
+          `<circle cx="${x}" cy="${y}" r="${r}" fill="#ffffff" opacity="${f(0.35 + r * 0.12)}"/>`
+      ).join('') +
+      `<path d="M 24 44 L 44 62 L 72 50" stroke="${c.rim}" stroke-width="1" fill="none" ` +
+      `opacity=".35"/>`,
+    crown: (c, def) => {
+      const { x, y } = def.crown;
+      return (
+        `<ellipse cx="${f(x)}" cy="${f(y - 12)}" rx="21" ry="6" fill="none" ` +
+        `stroke="${c.rim}" stroke-width="3.4" opacity=".9"/>` +
+        `<ellipse cx="${f(x)}" cy="${f(y - 12)}" rx="21" ry="6" fill="none" ` +
+        `stroke="#ffffff" stroke-width="1.2" opacity=".55"/>`
+      );
+    },
+  },
+
+  // Финальный дроп: глазурь по верху корпуса и посыпка. Глазурь режется по
+  // силуэту, поэтому одинаково хорошо ложится и на яйцо, и на звезду.
+  candy: {
+    spec: 0.85,
+    sharp: 1,
+    rim: 7,
+    halo: 0.9,
+    onBody: (c, def) => {
+      const glaze = mix(c.light, '#ffffff', 0.55);
+      const edge = def.face.y - 4;
+      // Нижняя кромка глазури — волна с четырьмя потёками.
+      let d = `M -10 -20 L 110 -20 L 110 ${f(edge - 6)} `;
+      for (let i = 0; i < 4; i++) {
+        const x0 = 110 - i * 30;
+        const x1 = x0 - 30;
+        const deep = edge + (i % 2 === 0 ? 13 : 5);
+        d += `Q ${f((x0 + x1) / 2)} ${f(deep)} ${f(x1)} ${f(edge - 6)} `;
+      }
+      d += `L -10 ${f(edge - 6)} Z`;
+      const drops = SPRINKLES.map(
+        ([x, y, rot]) =>
+          `<rect x="${f(x - 3.2)}" y="${f(y - 1.2)}" width="6.4" height="2.4" rx="1.2" ` +
+          `transform="rotate(${rot} ${x} ${y})" fill="${c.dark}" opacity=".75"/>`
+      ).join('');
+      return `<path d="${d}" fill="${glaze}" opacity=".92"/>${drops}`;
+    },
+    // Вишенка на макушке. Как и листик «Цитруса», она держит собственный цвет:
+    // на белой глазури вишня в тон корпуса просто исчезает.
+    crown: (c, def) => {
+      const { x, y } = def.crown;
+      const berry = mix(c.dark, '#e8244c', 0.82);
+      const stem = mix(c.dark, '#3f7a2c', 0.7);
+      return (
+        `<path d="M ${f(x)} ${f(y - 4)} C ${f(x + 4)} ${f(y - 13)}, ${f(x + 10)} ${f(y - 16)}, ` +
+        `${f(x + 13)} ${f(y - 20)}" stroke="${stem}" stroke-width="2.4" fill="none" ` +
+        `stroke-linecap="round"/>` +
+        `<circle cx="${f(x)}" cy="${f(y + 2)}" r="8" fill="${berry}"/>` +
+        `<circle cx="${f(x)}" cy="${f(y + 2)}" r="8" fill="none" ` +
+        `stroke="${mix(berry, '#000000', 0.35)}" stroke-width="1.2"/>` +
+        `<circle cx="${f(x - 2.6)}" cy="${f(y - 0.6)}" r="2.4" fill="#ffffff" opacity=".85"/>`
+      );
+    },
+  },
+};
+
 // --- Сборка -----------------------------------------------------------------
 
 export interface FigurineOptions {
@@ -320,6 +634,8 @@ export interface FigurineOptions {
   aura?: string;
   /** Лицо не рисуется (силуэт для карточки-заглушки в коллекции). */
   silhouette?: boolean;
+  /** Стиль серии. По умолчанию — глянцевый винил первого сезона. */
+  style?: SeasonStyle;
 }
 
 let uid = 0;
@@ -330,14 +646,28 @@ let uid = 0;
  */
 export function figurineSvg(shape: ShapeId, c: Colorway, opts: FigurineOptions = {}): string {
   const def = SHAPES[shape];
-  const { glow = true, aura, silhouette = false } = opts;
+  const { glow = true, aura, silhouette = false, style = 'neon' } = opts;
+  const look = STYLES[style];
   const n = ++uid;
   const id = (k: string) => `${k}${n}`;
 
   const behind = def.behind?.(c) ?? '';
   const front = def.front?.(c) ?? '';
 
-  const face = silhouette ? '' : blush(def, c) + eyes(def, c) + mouth(def, c);
+  // Плюшевый стиль заменяет рот строчкой, поэтому обычная дуга при наличии
+  // onFace не рисуется — иначе получилось бы два рта.
+  const face = silhouette
+    ? ''
+    : blush(def, c) +
+      eyes(def, c) +
+      (style === 'plush' ? '' : mouth(def, c)) +
+      (look.onFace?.(c, def) ?? '');
+
+  // Детали сезона на силуэте-заглушке не нужны: там показывается, какой формы
+  // фигурки не хватает, а не как она отделана.
+  const onBody = silhouette ? '' : (look.onBody?.(c, def) ?? '');
+  const crown = silhouette ? '' : (look.crown?.(c, def) ?? '');
+  const haloOpacity = 0.5 * look.halo;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
@@ -355,9 +685,10 @@ export function figurineSvg(shape: ShapeId, c: Colorway, opts: FigurineOptions =
     `<stop offset="0" stop-color="${c.rim}" stop-opacity=".95"/>` +
     `<stop offset=".38" stop-color="${c.rim}" stop-opacity="0"/>` +
     `</linearGradient>` +
-    // Мягкий широкий блик.
+    // Мягкий широкий блик. Его плотность задаёт стиль сезона: у плюша он почти
+    // выключен, у хрома и глазури — на максимуме.
     `<radialGradient id="${id('spec')}" cx="50%" cy="50%" r="50%">` +
-    `<stop offset="0" stop-color="#ffffff" stop-opacity=".62"/>` +
+    `<stop offset="0" stop-color="#ffffff" stop-opacity="${f(look.spec)}"/>` +
     `<stop offset="1" stop-color="#ffffff" stop-opacity="0"/>` +
     `</radialGradient>` +
     // Внутренняя тень у основания — фигурка «стоит», а не висит.
@@ -377,8 +708,8 @@ export function figurineSvg(shape: ShapeId, c: Colorway, opts: FigurineOptions =
     `<clipPath id="${id('clip')}"><path d="${def.body}"/></clipPath>` +
     `</defs>` +
     // 1. Свечение — размытая копия силуэта под всем остальным.
-    (glow
-      ? `<g filter="url(#${id('blur')})" opacity=".5">` +
+    (glow && haloOpacity > 0.02
+      ? `<g filter="url(#${id('blur')})" opacity="${f(haloOpacity)}">` +
         `<path d="${def.body}" fill="${c.glow}"/>${behind}</g>`
       : '') +
     // 2. Контактная тень на полке.
@@ -404,18 +735,25 @@ export function figurineSvg(shape: ShapeId, c: Colorway, opts: FigurineOptions =
     behind +
     // 5. Корпус.
     `<path d="${def.body}" fill="url(#${id('body')})"/>` +
-    // 6. Всё, что должно остаться внутри силуэта.
+    // 6. Всё, что должно остаться внутри силуэта. Отделка сезона идёт здесь же:
+    // глазурь, хромовый горизонт и звёздная пыль обязаны обрезаться по корпусу,
+    // иначе они «съезжают» с фигурки на любой нестандартной форме.
     `<g clip-path="url(#${id('clip')})">` +
     `<ellipse cx="50" cy="122" rx="42" ry="20" fill="url(#${id('occ')})"/>` +
-    `<path d="${def.body}" fill="none" stroke="url(#${id('rim')})" stroke-width="7"/>` +
+    `<path d="${def.body}" fill="none" stroke="url(#${id('rim')})" ` +
+    `stroke-width="${f(look.rim)}"/>` +
+    onBody +
     `<ellipse cx="34" cy="52" rx="20" ry="15" fill="url(#${id('spec')})" ` +
     `transform="rotate(-24 34 52)"/>` +
-    `<ellipse cx="30" cy="47" rx="5.5" ry="3.4" fill="#ffffff" opacity=".8" ` +
-    `transform="rotate(-24 30 47)"/>` +
+    (look.sharp > 0
+      ? `<ellipse cx="30" cy="47" rx="5.5" ry="3.4" fill="#ffffff" ` +
+        `opacity="${f(0.8 * look.sharp)}" transform="rotate(-24 30 47)"/>`
+      : '') +
     `</g>` +
-    // 7. Детали поверх корпуса и лицо.
+    // 7. Детали поверх корпуса, лицо и аксессуар сезона.
     front +
     face +
+    crown +
     `</svg>`
   );
 }
