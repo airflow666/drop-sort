@@ -572,4 +572,17 @@ export class BoardView extends Container {
   get isBusy(): boolean {
     return this.busy;
   }
+
+  /**
+   * Экранные центры витрин. Нужны смоук-тесту: он тапает по холсту реальными
+   * координатами, а раскладка зависит от размера экрана и числа витрин.
+   * Захардкоженные доли экрана в тесте ломались от любой правки раскладки и
+   * при этом выглядели как поломка игры.
+   */
+  shelfPoints(): Array<{ x: number; y: number }> {
+    return this.shelves.map((view) => ({
+      x: this.x + view.x,
+      y: this.y + view.y - this.metrics.height * 0.4,
+    }));
+  }
 }

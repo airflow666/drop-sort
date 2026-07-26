@@ -10,27 +10,64 @@ import { Board } from '../src/core/board';
 import { findHint } from '../src/core/hint';
 import { rateLevel, blitzSetPoints } from '../src/core/scoring';
 import type { LevelSpec, Shelf } from '../src/core/types';
+import {
+  easeBack,
+  easeBounce,
+  easeElastic,
+  easeIn,
+  easeInOut,
+  easeOut,
+  Tweens,
+} from '../src/render/tween';
 
 let passed = 0;
 let failed = 0;
 const failures: string[] = [];
 
-function test(name: string, fn: () => void): void {
-  try {
-    fn();
-    passed++;
-    console.log(`  ✓ ${name}`);
-  } catch (e) {
-    failed++;
-    const msg = e instanceof Error ? e.message : String(e);
-    failures.push(`${name}\n    ${msg.split('\n').join('\n    ')}`);
-    console.log(`  ✗ ${name}`);
-  }
+/**
+ * Тесты собираются в очередь и запускаются в конце файла.
+ *
+ * Раньше `test` вызывал функцию сразу и ловил только синхронные исключения.
+ * Тесты твинов асинхронные (они ждут промис твина), и при немедленном вызове
+ * их падения проходили бы мимо счётчика: упавший assert внутри промиса стал бы
+ * необработанным отказом, а тест — «пройденным».
+ */
+interface Queued {
+  group: string;
+  name: string;
+  fn: () => void | Promise<void>;
+}
+
+const queue: Queued[] = [];
+let currentGroup = '';
+
+function test(name: string, fn: () => void | Promise<void>): void {
+  queue.push({ group: currentGroup, name, fn });
 }
 
 function group(name: string, fn: () => void): void {
-  console.log(`\n${name}`);
+  currentGroup = name;
   fn();
+}
+
+async function run(): Promise<void> {
+  let printedGroup = '';
+  for (const item of queue) {
+    if (item.group !== printedGroup) {
+      printedGroup = item.group;
+      console.log(`\n${item.group}`);
+    }
+    try {
+      await item.fn();
+      passed++;
+      console.log(`  ✓ ${item.name}`);
+    } catch (e) {
+      failed++;
+      const msg = e instanceof Error ? e.message : String(e);
+      failures.push(`${item.name}\n    ${msg.split('\n').join('\n    ')}`);
+      console.log(`  ✗ ${item.name}`);
+    }
+  }
 }
 
 function level(shelves: Shelf[], capacity = 4, speciesCount?: number): LevelSpec {
@@ -343,6 +380,79 @@ group('Оценка результата', () => {
   });
 });
 
+group('Твины', () => {
+  // Регрессия на ошибку, которая замораживала игру. Вся анимация ходов —
+  // цепочка await по твинам, и отменённый твин, не резолвящий свой промис,
+  // оставлял поле в состоянии «идёт анимация» навсегда. В блице, где уровень
+  // сменяется прямо посреди анимации, это происходило гарантированно.
+  test('промис резолвится по завершении', async () => {
+    const tweens = new Tweens();
+    let last = -1;
+    const done = tweens.add({ duration: 100, onUpdate: (t) => (last = t) });
+    tweens.update(50);
+    assert.ok(last > 0 && last < 1, `середина твина дала t=${last}`);
+    tweens.update(60);
+    await done;
+    assert.equal(last, 1, 'к концу твина t должен быть ровно 1');
+  });
+
+  test('clear() резолвит промисы отменённых твинов', async () => {
+    const tweens = new Tweens();
+    let resolved = false;
+    const pending = tweens.add({ duration: 5000, onUpdate: () => {} }).then(() => {
+      resolved = true;
+    });
+    tweens.update(16);
+    assert.equal(resolved, false, 'твин ещё идёт');
+    tweens.clear();
+    await pending;
+    assert.equal(resolved, true, 'после clear() ожидающий код обязан продолжиться');
+    assert.equal(tweens.active, 0);
+  });
+
+  test('clear() не вызывает onComplete отменённого твина', async () => {
+    const tweens = new Tweens();
+    let completed = false;
+    const pending = tweens.add({
+      duration: 5000,
+      onUpdate: () => {},
+      onComplete: () => (completed = true),
+    });
+    tweens.update(16);
+    tweens.clear();
+    await pending;
+    // Отмена — это не завершение: доигрывать эффект в уже сменившемся
+    // состоянии нельзя, а ждущий код разбудить нужно.
+    assert.equal(completed, false);
+  });
+
+  test('задержка откладывает начало, но не ломает завершение', async () => {
+    const tweens = new Tweens();
+    let started = false;
+    const done = tweens.add({ duration: 50, delay: 100, onUpdate: () => (started = true) });
+    tweens.update(40);
+    assert.equal(started, false, 'до конца задержки onUpdate не зовётся');
+    tweens.update(70);
+    tweens.update(60);
+    await done;
+    assert.equal(started, true);
+  });
+
+  test('кривые не выходят за границы на концах', () => {
+    for (const [name, ease] of Object.entries({
+      easeInOut,
+      easeOut,
+      easeIn,
+      easeBack,
+      easeElastic,
+      easeBounce,
+    })) {
+      assert.ok(Math.abs(ease(0)) < 1e-6, `${name}(0) должен быть 0, а не ${ease(0)}`);
+      assert.ok(Math.abs(ease(1) - 1) < 1e-6, `${name}(1) должен быть 1, а не ${ease(1)}`);
+    }
+  });
+});
+
 group('Паритет правил с Python-солвером', () => {
   // Генератор пишет minMoves в паки, опираясь на СВОЮ реализацию правил
   // (tools/sortlib.py). Если она разойдётся с ядром хотя бы в одном краевом
@@ -427,6 +537,8 @@ group('Паритет правил с Python-солвером', () => {
 });
 
 // ---------------------------------------------------------------------------
+
+await run();
 
 console.log(`\n${'-'.repeat(52)}`);
 if (failed > 0) {

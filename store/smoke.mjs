@@ -143,24 +143,23 @@ await page.screenshot({ path: `${OUT}/smoke-02-game.png` });
 
 // --- Тапы по витринам -----------------------------------------------------
 phase('тапы по витринам');
-// Витрины живут в холсте, поэтому тапаем по координатам. Раскладка: витрины
-// стоят рядами по центру, поэтому пройдёмся по нижней трети экрана.
+// Витрины живут в холсте, поэтому тапаем настоящими координатами мыши — это
+// проверяет весь путь ввода вплоть до попадания в область витрины.
+//
+// Координаты берутся из живой раскладки, а не из долей экрана: доли ломались
+// от любой правки раскладки и выглядели при этом как поломка самой игры.
 const box = await page.locator('canvas').boundingBox();
+const points = await page.evaluate(() => window.__drop.shelfPoints());
+check('раскладка сообщила координаты витрин', points.length >= 5, `витрин: ${points.length}`);
+
 const movesBefore = await page.evaluate(
   () => document.querySelectorAll('.hud__stat b')[1]?.textContent ?? '?'
 );
 
-// Тапаем по нескольким точкам, где заведомо есть витрины.
-const points = [
-  [0.2, 0.52],
-  [0.5, 0.52],
-  [0.8, 0.52],
-  [0.2, 0.78],
-  [0.5, 0.78],
-];
-for (const [fx, fy] of points) {
-  await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
-  await page.waitForTimeout(420);
+// Пары «взять — положить»: по первым четырём витринам.
+for (const point of points.slice(0, 4)) {
+  await page.mouse.click(box.x + point.x, box.y + point.y);
+  await page.waitForTimeout(430);
 }
 
 const movesAfter = await page.evaluate(

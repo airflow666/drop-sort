@@ -138,6 +138,8 @@ export function showBlitzResult(
     sets: number;
     /** Лучшая фигурка коллекции — украшает карточку результата. */
     trophy?: FigurineDef;
+    /** Место в недельном лидерборде; null — игрока в таблице пока нет. */
+    rank: number | null;
     freeAttempts: number;
     refillIn: number;
   }
@@ -165,6 +167,11 @@ export function showBlitzResult(
         text: opts.isRecord ? 'Личный рекорд' : `Рекорд: ${formatNumber(opts.best)}`,
       })
     );
+    // Место в топе — вторая половина повода поделиться (план, §2): очки без
+    // места ни с чем не сравниваются.
+    if (opts.rank !== null) {
+      add(share, el('div', 'rarity rarity--rare', { text: `${opts.rank} место за неделю` }));
+    }
     add(box, share);
 
     let close = () => {};

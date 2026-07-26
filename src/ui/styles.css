@@ -978,7 +978,9 @@ button {
   }
 }
 
-/* Широкий экран: меню и коллекция не должны растягиваться в полосу. */
+/* Широкий экран: меню не должно растягиваться в полосу, а вот коллекция и
+   магазин наоборот — колонка в 560 пикселей на альбомном экране оставляет по
+   полэкрана пустоты с обеих сторон. */
 @media (min-width: 720px) and (min-height: 520px) {
   .menu__modes,
   .menu__row {
@@ -987,6 +989,23 @@ button {
 
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  }
+}
+
+@media (min-width: 900px) {
+  .screen__head,
+  .screen__body {
+    max-width: 880px;
+  }
+
+  /* Панель блайнд-бокса растягивается вместе с телом экрана: иначе она
+     осталась бы узкой карточкой у левого края. */
+  .screen__body > .card {
+    max-width: none;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
   }
 }
 

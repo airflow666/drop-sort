@@ -79,6 +79,31 @@ async function freshMenu(page: Page): Promise<void> {
   await page.waitForTimeout(300);
 }
 
+/**
+ * Начать кампанию.
+ *
+ * Если предыдущий снимок оставил незаконченную партию, игра сначала спросит
+ * «Продолжить партию?» — это штатное поведение, и его надо пройти, иначе HUD
+ * не появится вовсе. Именно на этом снимок экрана победы и не получался.
+ */
+async function startCampaign(page: Page): Promise<void> {
+  await page.locator('.mode--primary').click();
+  // Ждём то, что придёт первым: HUD или диалог. Проверять наличие диалога
+  // сразу после клика бесполезно — оверлей монтируется через кадр, count()
+  // возвращает ноль, и обработка диалога молча пропускается.
+  await page.waitForSelector('.hud__actions, .overlay.is-open .card', { timeout: 10000 });
+
+  const confirm = page.locator('.overlay.is-open .card');
+  if (await confirm.count()) {
+    const title = (await confirm.locator('.card__title').textContent()) ?? '';
+    if (/продолжить/i.test(title)) {
+      await confirm.locator('button').first().click();
+      await page.waitForTimeout(500);
+    }
+  }
+  await page.waitForSelector('.hud__actions', { timeout: 10000 });
+}
+
 const SHOTS: Shot[] = [
   {
     slug: '01-menu',
@@ -89,8 +114,7 @@ const SHOTS: Shot[] = [
   {
     slug: '02-game',
     async prepare(page) {
-      await page.locator('.mode--primary').click();
-      await page.waitForSelector('.hud__actions', { timeout: 10000 });
+      await startCampaign(page);
       // Несколько ходов: стартовое поле выглядит менее интересно, чем поле в
       // процессе разбора, где часть витрин уже собирается.
       await page.evaluate(() => window.__drop.autoSolve(5));
@@ -100,8 +124,7 @@ const SHOTS: Shot[] = [
   {
     slug: '03-victory',
     async prepare(page) {
-      await page.locator('.mode--primary').click();
-      await page.waitForSelector('.hud__actions', { timeout: 10000 });
+      await startCampaign(page);
       await page.evaluate(() => window.__drop.autoSolve());
       await page.waitForSelector('.overlay.is-open .card', { timeout: 20000 });
       await page.waitForTimeout(900); // дать звёздам зажечься

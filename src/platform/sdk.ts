@@ -375,10 +375,41 @@ export class Platform {
     }
   }
 
+  /**
+   * Своя строка в таблице. Отдельный вызов SDK, а не поиск себя в общем
+   * списке: в записях списка нет надёжного признака «это я» — предыдущая
+   * версия опиралась на недокументированное поле и не работала.
+   *
+   * Нужна для карточки результата: план (§2) требует показывать на ней место
+   * в топе, а не только очки.
+   */
+  async fetchPlayerRank(leaderboard: string): Promise<number | null> {
+    if (this.isMock) {
+      const entries = this.mockLeaderboard(leaderboard, 10);
+      return entries.find((e) => e.self)?.rank ?? null;
+    }
+    const lb = await this.getLeaderboards();
+    if (!lb) return null;
+    try {
+      const entry = await Promise.race([
+        lb.getLeaderboardPlayerEntry(leaderboard),
+        timeout(CALL_TIMEOUT_MS, null),
+      ]);
+      return typeof entry?.rank === 'number' && entry.rank > 0 ? entry.rank : null;
+    } catch {
+      // Игрок ещё не в таблице — это не ошибка, а обычное состояние новичка.
+      return null;
+    }
+  }
+
   async fetchLeaderboard(leaderboard: string, top = 10): Promise<LeaderboardEntry[]> {
     if (this.isMock) return this.mockLeaderboard(leaderboard, top);
     const lb = await this.getLeaderboards();
     if (!lb) return [];
+
+    // Своё место запрашиваем отдельно и по нему помечаем строку в списке.
+    const myRank = await this.fetchPlayerRank(leaderboard);
+
     try {
       const res = await Promise.race([
         lb.getLeaderboardEntries(leaderboard, {
@@ -393,7 +424,7 @@ export class Platform {
         rank: e.rank,
         score: e.score,
         name: e.player?.publicName || 'Игрок',
-        self: Boolean(e.player?.scopePermissions?.public_name === 'allow' && e.rank && e.self),
+        self: myRank !== null && e.rank === myRank,
       }));
     } catch (e) {
       console.warn('getLeaderboardEntries не удался', e);

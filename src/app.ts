@@ -972,6 +972,8 @@ export class App {
     // Монеты за забег — иначе блиц не кормит мету и остаётся тупиковым режимом.
     this.profile.addCoins(Math.round(score / 40));
     await this.platform.submitScore(LEADERBOARD_BLITZ, score);
+    // Место запрашивается ПОСЛЕ отправки очков, иначе покажем позицию до забега.
+    const rank = await this.platform.fetchPlayerRank(LEADERBOARD_BLITZ);
 
     const trophy = this.bestTrophy();
     this.teardownSession();
@@ -983,6 +985,7 @@ export class App {
         isRecord,
         sets,
         ...(trophy ? { trophy } : {}),
+        rank,
         freeAttempts: this.profile.blitzAttempts,
         refillIn: this.profile.blitzRefillIn,
       });
@@ -990,6 +993,7 @@ export class App {
       if (choice === 'share') {
         const text =
           `DROP · блиц: ${score} очков за 60 секунд, ${sets} витрин.` +
+          (rank !== null ? ` ${rank} место за неделю.` : '') +
           ' Побей мой результат!';
         const ok = await this.platform.copyText(text);
         this.toast(ok ? 'Результат скопирован' : 'Не удалось скопировать');
@@ -1107,6 +1111,8 @@ export class App {
       endBlitzNow: (): void => {
         if (this.session?.mode === 'blitz') this.session.deadline = Date.now();
       },
+      /** Экранные центры витрин — чтобы тест тапал по реальной раскладке. */
+      shelfPoints: (): Array<{ x: number; y: number }> => this.session?.view.shelfPoints() ?? [],
       state: () => ({
         mode: this.session?.mode ?? null,
         moves: this.session?.board.moves ?? 0,
