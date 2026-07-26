@@ -1,0 +1,27 @@
+{
+  "name": "drop-sort",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "DROP — пазл-сортировка коллекционных фигурок для Яндекс Игр",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "levels": "python3 tools/generate_levels.py",
+    "test": "npm run typecheck && npm run test:core && npm run test:levels",
+    "test:core": "tsx test/core.test.ts",
+    "test:levels": "python3 tools/test_generator.py",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "zip": "npm run build && cd dist && zip -qr ../drop-sort.zip . && cd .. && ls -lh drop-sort.zip"
+  },
+  "dependencies": {
+    "pixi.js": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
+  }
+}

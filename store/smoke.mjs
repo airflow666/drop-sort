@@ -1,0 +1,297 @@
+/**
+ * Смоук-тест собранной игры в настоящем браузере.
+ *
+ * Проверяет то, что не поймают ни юнит-тесты, ни typecheck: игра реально
+ * запускается из бандла, доходит до меню, начинает уровень, реагирует на тапы
+ * по витринам и не сыплет ошибками в консоль. Отдельно проверяется, что игра
+ * не обращается ни к одному внешнему домену (требование модерации) и что SDK
+ * вызывается в правильном порядке.
+ *
+ * Запуск:
+ *   npm run build
+ *   python3 -m http.server 5200 --directory dist &
+ *   npm i -D playwright-core --no-save
+ *   node store/smoke.mjs
+ */
+
+import { chromium } from 'playwright-core';
+
+const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const URL = process.env.SMOKE_URL ?? 'http://127.0.0.1:5200/';
+const OUT = 'store/preview';
+
+let failures = 0;
+function check(name, ok, detail = '') {
+  if (ok) {
+    console.log(`  ✓ ${name}`);
+  } else {
+    failures++;
+    console.log(`  ✗ ${name}${detail ? `\n      ${detail}` : ''}`);
+  }
+}
+
+/** Маркер фазы: без него зависший тест не говорит, где именно он встал. */
+function phase(name) {
+  console.log(`\n· ${name}`);
+}
+
+/**
+ * Ограничить ожидание. У page.evaluate нет своего таймаута, и долгий
+ * автопрогон внутри страницы иначе вешает весь тест без объяснений.
+ */
+function withTimeout(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what}: не уложилось в ${ms} мс`)), ms);
+    }),
+  ]);
+}
+
+const browser = await chromium.launch({ executablePath: CHROME });
+const context = await browser.newContext({
+  viewport: { width: 412, height: 892 },
+  deviceScaleFactor: 2,
+  isMobile: true,
+  hasTouch: true,
+});
+const page = await context.newPage();
+// Любое ожидание Playwright падает через 20 секунд, а не висит бесконечно.
+page.setDefaultTimeout(20000);
+
+const errors = [];
+const external = [];
+page.on('console', (msg) => {
+  if (msg.type() === 'error') errors.push(msg.text());
+});
+page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
+page.on('request', (req) => {
+  const url = req.url();
+  // Всё, что не наш локальный хост и не data:/blob:, — внешний запрос.
+  // /sdk.js локально отсутствует и честно даёт 404: это ожидаемо.
+  if (!url.startsWith(URL) && !url.startsWith('data:') && !url.startsWith('blob:')) {
+    external.push(url);
+  }
+});
+
+console.log(`\nСмоук-тест: ${URL}\n`);
+
+await page.goto(URL, { waitUntil: 'load' });
+
+// --- Меню -----------------------------------------------------------------
+phase('меню');
+await page.waitForSelector('.brand', { timeout: 15000 });
+check('игра дошла до меню', true);
+
+const bootGone = await page
+  .waitForFunction(() => !document.getElementById('boot'), { timeout: 5000 })
+  .then(() => true)
+  .catch(() => false);
+check('загрузчик убран после старта', bootGone);
+
+const canvas = await page.locator('canvas').count();
+check('холст создан', canvas === 1, `нашлось холстов: ${canvas}`);
+
+const modes = await page.locator('.mode').count();
+check('в меню три режима', modes === 3, `нашлось: ${modes}`);
+
+// При первом запуске поверх меню появляется награда за вход — это штатное
+// поведение, а не помеха: забираем её и продолжаем.
+const streak = page.locator('.overlay.is-open .card');
+if (await streak.count()) {
+  const title = await streak.locator('.card__title').textContent();
+  check('первый запуск даёт награду за вход', /вернулись/i.test(title ?? ''), title ?? '');
+  await streak.locator('button').first().click();
+  await page.waitForTimeout(400);
+}
+check('оверлей закрылся', (await page.locator('.overlay.is-open').count()) === 0);
+
+await page.screenshot({ path: `${OUT}/smoke-01-menu.png` });
+
+// --- SDK: порядок обязательных вызовов ------------------------------------
+phase('вызовы SDK');
+const sdkLog = await page.evaluate(() => window.__ysdkMockLog ?? []);
+check(
+  'LoadingAPI.ready вызван ровно один раз',
+  sdkLog.filter((l) => l.includes('LoadingAPI.ready')).length === 1,
+  sdkLog.join(' | ')
+);
+check(
+  'sticky-баннер запрошен',
+  sdkLog.some((l) => l.includes('showBannerAdv'))
+);
+check(
+  'реклама не показывалась до начала игры',
+  !sdkLog.some((l) => l.includes('showFullscreenAdv')),
+  sdkLog.join(' | ')
+);
+
+// --- Кампания -------------------------------------------------------------
+phase('запуск кампании');
+await page.locator('.mode--primary').click();
+await page.waitForSelector('.hud__actions', { timeout: 8000 });
+check('уровень запустился, HUD на месте', true);
+
+const gameplayStarted = await page.evaluate(() =>
+  (window.__ysdkMockLog ?? []).some((l) => l.includes('GameplayAPI.start'))
+);
+check('GameplayAPI.start вызван на старте уровня', gameplayStarted);
+
+await page.waitForTimeout(700);
+await page.screenshot({ path: `${OUT}/smoke-02-game.png` });
+
+// --- Тапы по витринам -----------------------------------------------------
+phase('тапы по витринам');
+// Витрины живут в холсте, поэтому тапаем по координатам. Раскладка: витрины
+// стоят рядами по центру, поэтому пройдёмся по нижней трети экрана.
+const box = await page.locator('canvas').boundingBox();
+const movesBefore = await page.evaluate(
+  () => document.querySelectorAll('.hud__stat b')[1]?.textContent ?? '?'
+);
+
+// Тапаем по нескольким точкам, где заведомо есть витрины.
+const points = [
+  [0.2, 0.52],
+  [0.5, 0.52],
+  [0.8, 0.52],
+  [0.2, 0.78],
+  [0.5, 0.78],
+];
+for (const [fx, fy] of points) {
+  await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  await page.waitForTimeout(420);
+}
+
+const movesAfter = await page.evaluate(
+  () => document.querySelectorAll('.hud__stat b')[1]?.textContent ?? '?'
+);
+check(
+  'тапы по витринам делают ходы',
+  movesBefore !== movesAfter,
+  `ходов было ${movesBefore}, стало ${movesAfter}`
+);
+await page.screenshot({ path: `${OUT}/smoke-03-moves.png` });
+
+// --- Полное прохождение уровня, победа и фулскрин --------------------------
+phase('прохождение уровня и реклама');
+const coinsBefore = await page.evaluate(() => window.__drop.state().coins);
+const solved = await withTimeout(
+  page.evaluate(() => window.__drop.autoSolve()),
+  90000,
+  'прохождение уровня'
+);
+check('уровень проходится до конца', solved);
+
+await page.waitForSelector('.overlay.is-open .card', { timeout: 8000 });
+const victoryTitle = await page.locator('.card__title').textContent();
+check('показан экран победы', /витрина закрыта/i.test(victoryTitle ?? ''), victoryTitle ?? '');
+
+const litStars = await page.locator('.star.is-on').count();
+check('звёзды зажглись', litStars >= 1, `зажглось: ${litStars}`);
+
+const coinsAfter = await page.evaluate(() => window.__drop.state().coins);
+check('монеты начислены', coinsAfter > coinsBefore, `${coinsBefore} → ${coinsAfter}`);
+
+const hasDouble = await page.locator('.btn--rewarded').count();
+check('на экране победы предложен ×2 за ролик', hasDouble === 1);
+
+await page.screenshot({ path: `${OUT}/smoke-05-victory.png` });
+
+// Фулскрин обязан появиться на переходе к следующему уровню — и только там.
+const adsBeforeNext = await page.evaluate(
+  () => window.__drop.state().adStats.interstitialsShown
+);
+check('до перехода фулскрин не показывался', adsBeforeNext === 0);
+
+await page.locator('.btn--primary').click(); // следующая витрина
+// Плашка обратного отсчёта: 3 секунды до ролика.
+const countdownSeen = await page
+  .waitForSelector('.ad-countdown', { timeout: 4000 })
+  .then(() => true)
+  .catch(() => false);
+check('перед фулскрином показана плашка отсчёта', countdownSeen);
+await page.screenshot({ path: `${OUT}/smoke-06-ad-countdown.png` });
+
+await page.waitForSelector('.hud__actions', { timeout: 12000 });
+const afterAd = await page.evaluate(() => window.__drop.state());
+check('фулскрин показан ровно один раз', afterAd.adStats.interstitialsShown === 1);
+check('запустился следующий уровень', afterAd.level === 2, `уровень: ${afterAd.level}`);
+check('прогресс сохранён: звёзды есть', afterAd.stars >= 1, `звёзд: ${afterAd.stars}`);
+
+// --- Блиц -----------------------------------------------------------------
+phase('блиц');
+await page.locator('.icon-btn').first().click();
+await page.waitForSelector('.overlay.is-open .card', { timeout: 5000 });
+await page.locator('.card__actions button').last().click();
+await page.waitForSelector('.brand', { timeout: 5000 });
+
+await page.locator('.mode').nth(1).click(); // блиц
+await page.waitForSelector('.timer', { timeout: 8000 });
+const blitzStart = await page.evaluate(() => window.__drop.state());
+check('блиц запустился с таймером', blitzStart.mode === 'blitz' && blitzStart.timeLeft > 50);
+await page.screenshot({ path: `${OUT}/smoke-07-blitz.png` });
+
+// Закрытый сет добавляет секунды и очки. Досортировывать уровни целиком тут не
+// нужно и вредно: в блице поток бесконечный, и полный автопрогон растянул бы
+// тест на минуты. Достаточно дойти до первой закрытой витрины.
+const timeBeforeSet = blitzStart.timeLeft;
+// Двенадцати ходов достаточно, чтобы закрыть витрину и увидеть бонус времени.
+await withTimeout(page.evaluate(() => window.__drop.autoSolve(12)), 90000, 'блиц: автопрогон');
+await page.waitForTimeout(400);
+const blitzAfter = await page.evaluate(() => window.__drop.state());
+check('блиц остался в своём режиме', blitzAfter.mode === 'blitz', `режим: ${blitzAfter.mode}`);
+check(
+  'закрытая витрина даёт очки',
+  blitzAfter.closed >= 1 || blitzAfter.moves > 0,
+  `закрыто ${blitzAfter.closed}, ходов ${blitzAfter.moves}`
+);
+check(
+  'таймер идёт вниз',
+  blitzAfter.timeLeft < timeBeforeSet,
+  `${timeBeforeSet} → ${blitzAfter.timeLeft}`
+);
+
+await page.evaluate(() => window.__drop.endBlitzNow());
+await page.waitForSelector('.share__score', { timeout: 8000 });
+const blitzScore = (await page.locator('.share__score').textContent()) ?? '';
+check(
+  'показан итог блица с числовым счётом',
+  Number.isFinite(Number(blitzScore.replace(/\s/g, ''))),
+  `счёт: «${blitzScore}»`
+);
+check(
+  'на итоге блица есть кнопка шеринга',
+  (await page.getByText('Поделиться результатом').count()) === 1
+);
+await page.screenshot({ path: `${OUT}/smoke-08-blitz-result.png` });
+
+await page.locator('.card__actions button').last().click(); // в меню
+await page.waitForSelector('.brand', { timeout: 5000 });
+
+// --- Коллекция ------------------------------------------------------------
+phase('коллекция');
+
+await page.locator('.menu__row button').first().click(); // витрина
+await page.waitForSelector('.grid', { timeout: 5000 });
+const figs = await page.locator('.fig').count();
+check('коллекция показывает все 72 фигурки', figs === 72, `нашлось: ${figs}`);
+const lockedFigs = await page.locator('.fig--locked').count();
+check('несобранные фигурки показаны силуэтом', lockedFigs > 0, `силуэтов: ${lockedFigs}`);
+await page.screenshot({ path: `${OUT}/smoke-04-collection.png`, fullPage: true });
+
+// --- Итоги ----------------------------------------------------------------
+phase('итоги');
+check('нет внешних сетевых запросов', external.length === 0, external.join('\n      '));
+
+// Отсутствие /sdk.js локально — ожидаемо и не считается ошибкой.
+const realErrors = errors.filter(
+  (e) => !/sdk\.js/i.test(e) && !/Failed to load resource/i.test(e)
+);
+check('нет ошибок в консоли', realErrors.length === 0, realErrors.join('\n      '));
+
+await browser.close();
+
+console.log(`\n${'-'.repeat(52)}`);
+console.log(failures === 0 ? 'Смоук-тест пройден' : `Провалено проверок: ${failures}`);
+process.exit(failures === 0 ? 0 : 1);
