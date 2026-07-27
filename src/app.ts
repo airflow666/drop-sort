@@ -19,7 +19,7 @@ import { Application, Container } from 'pixi.js';
 import { Board, findHint, rateLevel, BLITZ_DURATION, BLITZ_TIME_BONUS, blitzSetPoints } from './core';
 import type { LevelSpec } from './core';
 import { blitzLevel, campaignLevel, dailyLevel } from './levels/provider';
-import { BLIND_BOX_COST, isCompetitive, Profile, type GameMode } from './meta/profile';
+import { BLIND_BOX_COST, isCompetitive, PASS_DAYS, Profile, type GameMode } from './meta/profile';
 import { Ads } from './platform/ads';
 import {
   isConsumable,
@@ -254,6 +254,26 @@ export class App {
         this.refreshMenu();
       }
     }
+    // Пропуск выдаётся после стрика и отдельно от него: стрик бесплатный и
+    // есть у всех, пропуск — оплаченный товар, и игрок должен видеть, за что
+    // он заплатил, а не гадать, откуда взялись монеты.
+    this.claimPassReward();
+  }
+
+  /**
+   * Выдать сегодняшнюю награду недельного пропуска, если она есть.
+   *
+   * Вызывается и при входе, и сразу после покупки — во втором случае
+   * начисляется первый из семи дней.
+   */
+  private claimPassReward(): void {
+    const claim = this.profile.claimPass();
+    if (!claim) return;
+    this.audio.coin();
+    this.toast(
+      t('toast.passDay', { coins: claim.coins, hints: claim.hints, days: claim.daysLeft })
+    );
+    this.refreshMenu();
   }
 
   private resize(): void {
@@ -580,11 +600,12 @@ export class App {
         this.toast(t('toast.adsDisabled'));
         break;
       case PRODUCT_WEEK_PASS:
-        // Пропуск начисляет награду сразу и далее по календарю входов —
-        // серверной части нет, поэтому механика опирается на стрик.
-        this.profile.addCoins(300);
-        this.profile.addHints(5);
-        this.toast(t('toast.passActive'));
+        // Пропуск именно недельный: он ставит дату окончания и выдаёт первую
+        // из семи ежедневных наград сразу, чтобы покупка что-то дала прямо
+        // сейчас. Остальные шесть игрок забирает при входах — этим пропуск и
+        // отличается от разового набора монет.
+        this.profile.activatePass(PASS_DAYS);
+        this.claimPassReward();
         break;
       default:
         if (productId.startsWith('skin_')) {

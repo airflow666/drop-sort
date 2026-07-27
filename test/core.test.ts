@@ -12,6 +12,8 @@ import {
   formatNumber,
   pluralize,
   setLanguage,
+  t,
+  type Key,
 } from '../src/i18n';
 import { ALL_FIGURINES, figurineName } from '../src/theme/seasons';
 import { Board } from '../src/core/board';
@@ -25,6 +27,12 @@ import {
   PLATFORM_ID_MASK,
   PRODUCT_IDS,
 } from '../src/platform/ids';
+import {
+  PASS_DAILY_COINS,
+  PASS_DAYS,
+  Profile,
+  type ProfileStorage,
+} from '../src/meta/profile';
 import {
   easeBack,
   easeBounce,
@@ -500,6 +508,36 @@ group('Идентификаторы для консоли площадки', () 
     }
   });
 
+  test('тексты товаров совпадают с витриной консоли', () => {
+    // store/CARD.md — то, что руками вбивается в форму товара. Экран магазина
+    // берёт названия из каталога площадки, то есть ИЗ ЭТИХ ЖЕ строк, и
+    // расхождение читается игроком как подмена: в карточке одно, в игре другое.
+    // Держать две копии текста синхронными «внимательно» не выходит — правку в
+    // i18n забывают перенести в карточку ровно один раз, и этого достаточно.
+    const card = readFileSync(new URL('../store/CARD.md', import.meta.url), 'utf8');
+    const products: Array<[string, Key, Key]> = [
+      ['hints_10', 'product.hints10.title', 'product.hints10.note'],
+      ['week_pass', 'product.weekPass.title', 'product.weekPass.note'],
+      ['skin_chrome', 'product.skinChrome.title', 'product.skinChrome.note'],
+      ['no_ads', 'product.noAds.title', 'product.noAds.note'],
+    ];
+    for (const lang of ['ru', 'en'] as const) {
+      setLanguage(lang);
+      for (const [id, titleKey, noteKey] of products) {
+        for (const key of [titleKey, noteKey]) {
+          const text = t(key);
+          assert.ok(
+            card.includes(`\`${text}\``),
+            `store/CARD.md не содержит «${text}» (${id}, ${lang}): карточка разошлась с игрой`
+          );
+          // Заодно лимиты формы: название до 100 символов, описание до 200.
+          assert.ok(text.length <= (key === titleKey ? 100 : 200), `«${text}» длиннее лимита формы`);
+        }
+      }
+    }
+    setLanguage('ru');
+  });
+
   test('нерасходуемые товары не считаются расходуемыми', () => {
     // «Убрать рекламу» и скины подтверждать нельзя: платформа хранит факт
     // владения именно непотреблённой покупкой. Потребить их значит забыть
@@ -507,6 +545,94 @@ group('Идентификаторы для консоли площадки', () 
     assert.equal(isConsumable('no_ads'), false);
     assert.equal(isConsumable('skin_chrome'), false);
     assert.equal(isConsumable('hints_10'), true);
+  });
+});
+
+group('Недельный пропуск', () => {
+  // Пропуск — оплаченный товар, и он обещает конкретное: награду каждый день
+  // семь дней подряд. Ошибка в датах здесь не роняет игру, она просто не даёт
+  // игроку то, за что он заплатил, — и выясняется это возвратами.
+
+  /** Хранилище в памяти: профилю от площадки нужны только два этих метода. */
+  function storage(): ProfileStorage {
+    const store: Record<string, unknown> = {};
+    return {
+      async getData() {
+        return store;
+      },
+      async setData(data) {
+        // Копия, а не ссылка: иначе «перезагрузка» вернула бы тот же объект,
+        // и тест на сохранение проходил бы, ничего не проверяя.
+        Object.assign(store, JSON.parse(JSON.stringify(data)));
+      },
+    };
+  }
+
+  function profile(): Profile {
+    return new Profile(storage());
+  }
+
+  test('без покупки пропуска нет', () => {
+    const p = profile();
+    assert.equal(p.passActive, false);
+    assert.equal(p.passClaimable, false);
+    assert.equal(p.claimPass(), null);
+  });
+
+  test('покупка включает пропуск на семь дней', () => {
+    const p = profile();
+    p.activatePass(PASS_DAYS);
+    assert.equal(p.passActive, true);
+    assert.equal(p.passDaysLeft, PASS_DAYS);
+  });
+
+  test('награда выдаётся раз в день, а не на каждый вход', () => {
+    const p = profile();
+    p.activatePass(PASS_DAYS);
+    const coinsBefore = p.coins;
+
+    const first = p.claimPass();
+    assert.ok(first, 'первый вход должен дать награду');
+    assert.equal(p.coins, coinsBefore + PASS_DAILY_COINS);
+
+    // Второй заход в тот же день — уже ничего: иначе пропуск печатал бы монеты
+    // с каждой перезагрузки вкладки.
+    assert.equal(p.claimPass(), null);
+    assert.equal(p.coins, coinsBefore + PASS_DAILY_COINS);
+  });
+
+  test('повторная покупка продлевает, а не обнуляет остаток', () => {
+    const p = profile();
+    p.activatePass(PASS_DAYS);
+    p.activatePass(PASS_DAYS);
+    // Второй пропуск ложится ХВОСТОМ к первому. Если бы он начинал отсчёт
+    // заново, игрок потерял бы оплаченные дни первого.
+    assert.equal(p.passDaysLeft, PASS_DAYS * 2);
+  });
+
+  test('пропуск переживает перезагрузку', async () => {
+    const platform = storage();
+    const first = new Profile(platform);
+    await first.load();
+    first.activatePass(PASS_DAYS);
+    first.claimPass();
+    await first.flush();
+
+    const second = new Profile(platform);
+    await second.load();
+    assert.equal(second.passActive, true, 'пропуск не сохранился');
+    assert.equal(second.passDaysLeft, PASS_DAYS);
+    // И награду сегодня уже не выдаст второй раз.
+    assert.equal(second.passClaimable, false);
+  });
+
+  test('истёкший пропуск не действует и наград не даёт', () => {
+    const p = profile();
+    // Пропуск, купленный десять дней назад: ставим дату окончания в прошлом.
+    p.activatePass(-3);
+    assert.equal(p.passActive, false);
+    assert.equal(p.passDaysLeft, 0);
+    assert.equal(p.claimPass(), null);
   });
 });
 

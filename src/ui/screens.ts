@@ -542,6 +542,20 @@ export function createShop(
       el('span', 'mode__note', { text: listed?.description || t(product.noteKey) })
     );
 
+    // Действующий пропуск показывает остаток дней. Без этого купленный пропуск
+    // выглядит в точности как некупленный: кнопка «купить» никуда не девается
+    // (повторная покупка продлевает), и игрок берёт второй, не понимая, что
+    // первый ещё идёт.
+    if (product.id === PRODUCT_WEEK_PASS && profile.passActive) {
+      const left = profile.passDaysLeft;
+      add(
+        text,
+        el('span', 'mode__note mode__note--on', {
+          text: t('shop.passLeft', { n: left, days: pluralize(left, 'days') }),
+        })
+      );
+    }
+
     const isActiveSkin = product.id.startsWith('skin_') && profile.activeSkin === product.id;
     const action = isActiveSkin
       ? el('span', 'mode__status', { text: t('shop.equipped') })

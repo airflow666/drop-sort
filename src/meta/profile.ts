@@ -25,7 +25,20 @@ import {
   SLOT_COUNT,
   type FigurineDef,
 } from '../theme/seasons';
-import type { Platform } from '../platform/sdk';
+/**
+ * Всё, что профилю нужно от площадки, — два метода хранилища.
+ *
+ * Тип объявлен здесь, а не взят из `Platform`: `src/platform/sdk.ts` — это
+ * браузерный код (document, window, clipboard), и импорт его типа тянул за
+ * собой весь модуль. Тесты гоняются в Node без lib.dom намеренно — так ядро и
+ * мета проверяются на независимость от браузера, — и профиль с таким импортом
+ * стало невозможно ни протестировать, ни проверить типами. `Platform`
+ * подходит под этот интерфейс структурно, поэтому места вызова не меняются.
+ */
+export interface ProfileStorage {
+  getData(): Promise<Record<string, unknown>>;
+  setData(data: Record<string, unknown>, flush?: boolean): Promise<void>;
+}
 
 export const SAVE_VERSION = 1;
 
@@ -93,6 +106,18 @@ interface SaveShape {
    */
   loadout: Record<string, string>;
   noAds: boolean;
+  /**
+   * Последний день действия недельного пропуска, YYYY-MM-DD. Пустая строка —
+   * пропуска нет.
+   *
+   * Хранится дата окончания, а не «осталось дней»: счётчик пришлось бы
+   * уменьшать по событию, и игрок, не заходивший неделю, потерял бы всё
+   * оплаченное или наоборот получил бы вечный пропуск — в зависимости от того,
+   * где стоит декремент. Дата же не зависит от того, заходил игрок или нет.
+   */
+  passUntil: string;
+  /** Дата последней выдачи ежедневной награды пропуска, YYYY-MM-DD. */
+  passClaimed: string;
   settings: Settings;
   /** Сезон, который игрок видел последним — по нему ловится смена сезона. */
   seenSeason: number;
@@ -104,6 +129,18 @@ interface SaveShape {
 const MAX_FREE_BLITZ = 2;
 export const BLITZ_REFILL_MS = 15 * 60 * 1000;
 export const BLIND_BOX_COST = 120;
+
+/**
+ * Недельный пропуск: сколько дней и что даёт каждый день.
+ *
+ * Семь дней по 60 монет и 1 подсказке — это 420 монет и 7 подсказок против
+ * 20 монет и 0 подсказок, которые за ту же неделю даёт бесплатный стрик.
+ * Разница ощутима, но не ломает экономику: 420 монет — это 3,5 блайнд-бокса,
+ * а не мгновенно собранная коллекция.
+ */
+export const PASS_DAYS = 7;
+export const PASS_DAILY_COINS = 60;
+export const PASS_DAILY_HINTS = 1;
 /** Сколько дубликатов обменивается на бокс. */
 export const DUPLICATES_PER_BOX = 8;
 
@@ -122,6 +159,13 @@ function today(): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
 function daysBetween(a: string, b: string): number {
   const pa = Date.parse(`${a}T00:00:00`);
   const pb = Date.parse(`${b}T00:00:00`);
@@ -149,6 +193,8 @@ function defaults(): SaveShape {
     activeSkin: '',
     loadout: {},
     noAds: false,
+    passUntil: '',
+    passClaimed: '',
     settings: { muted: false, haptics: true },
     seenSeason: currentSeasonId(),
     tutorialSeen: false,
@@ -163,7 +209,7 @@ export interface BoxResult {
 }
 
 export class Profile {
-  private readonly platform: Platform;
+  private readonly platform: ProfileStorage;
   private data: SaveShape = defaults();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
@@ -171,7 +217,7 @@ export class Profile {
   /** Сезон сменился с прошлого запуска — интерфейс покажет анонс новой серии. */
   seasonRolledOver = false;
 
-  constructor(platform: Platform) {
+  constructor(platform: ProfileStorage) {
     this.platform = platform;
   }
 
@@ -263,6 +309,8 @@ export class Profile {
       activeSkin: str('activeSkin', ''),
       loadout,
       noAds: raw.noAds === true,
+      passUntil: str('passUntil', ''),
+      passClaimed: str('passClaimed', ''),
       settings: {
         muted: rawSettings.muted === true,
         haptics: rawSettings.haptics !== false,
@@ -570,6 +618,58 @@ export class Profile {
     this.data.coins += coins;
     void this.flush();
     return { day: this.data.streakDays, coins };
+  }
+
+  // --- Недельный пропуск --------------------------------------------------
+
+  /** Действует ли пропуск сегодня. */
+  get passActive(): boolean {
+    if (!this.data.passUntil) return false;
+    return daysBetween(today(), this.data.passUntil) >= 0;
+  }
+
+  /** Сколько дней пропуска осталось, включая сегодняшний. */
+  get passDaysLeft(): number {
+    if (!this.passActive) return 0;
+    return daysBetween(today(), this.data.passUntil) + 1;
+  }
+
+  /** Ждёт ли игрока сегодняшняя награда пропуска. */
+  get passClaimable(): boolean {
+    return this.passActive && this.data.passClaimed !== today();
+  }
+
+  /**
+   * Активировать пропуск на N дней.
+   *
+   * Повторная покупка ПРОДЛЕВАЕТ действующий пропуск, а не начинает его
+   * заново: иначе игрок, купивший второй пропуск на пятый день, потерял бы
+   * два оплаченных дня — и был бы прав, потребовав возврат.
+   */
+  activatePass(days: number): void {
+    // passUntil — ПОСЛЕДНИЙ день действия, а не первый день после него.
+    // Поэтому новый пропуск заканчивается через days-1 суток (сегодня уже
+    // первый из семи), а продление прибавляет days к последнему дню.
+    this.data.passUntil = this.passActive
+      ? addDays(this.data.passUntil, days)
+      : addDays(today(), days - 1);
+    this.touch();
+  }
+
+  /**
+   * Забрать сегодняшнюю награду пропуска.
+   *
+   * Награда именно ежедневная, как обещает карточка товара. Начислять всё
+   * сразу при покупке было бы честнее по сумме, но это уже другой товар:
+   * смысл пропуска в том, что он возвращает игрока в игру семь дней подряд.
+   */
+  claimPass(): { coins: number; hints: number; daysLeft: number } | null {
+    if (!this.passClaimable) return null;
+    this.data.passClaimed = today();
+    this.data.coins += PASS_DAILY_COINS;
+    this.data.hints += PASS_DAILY_HINTS;
+    void this.flush();
+    return { coins: PASS_DAILY_COINS, hints: PASS_DAILY_HINTS, daysLeft: this.passDaysLeft };
   }
 
   // --- Блайнд-боксы -------------------------------------------------------

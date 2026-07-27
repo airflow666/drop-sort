@@ -652,6 +652,12 @@ button {
   margin-top: 2px;
 }
 
+/* Строка «пропуск действует» — акцентом, чтобы не слиться с описанием товара. */
+.mode__note--on {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .mode__status {
   flex: none;
   font-size: 12px;
