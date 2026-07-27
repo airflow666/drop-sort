@@ -652,6 +652,21 @@ button {
   margin-top: 2px;
 }
 
+/* Цена товара: число и иконка валюты, пришедшая из каталога площадки.
+   Иконка внешняя и может не загрузиться — тогда рядом с числом просто ничего
+   не будет, и это лучше, чем сломанная вёрстка от alt-текста. */
+.price__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.price__icon {
+  width: 1em;
+  height: 1em;
+  margin-left: 0.35em;
+  vertical-align: -0.12em;
+  display: inline-block;
+}
+
 /* Строка «пропуск действует» — акцентом, чтобы не слиться с описанием товара. */
 .mode__note--on {
   color: var(--accent);

@@ -37,9 +37,20 @@ export interface CatalogItem {
   id: string;
   title: string;
   description: string;
+  /** Цена с кодом валюты, как её отдаёт площадка: «20 YAN». */
   price: string;
+  /** Только число, без валюты. */
   priceValue: string;
   imageURI?: string;
+  /**
+   * Иконка портальной валюты (SVG), взятая из свойств товара.
+   *
+   * Требование п. 1.13.2: портальная валюта определяется автоматически, её
+   * название и иконку нужно брать из `IProduct`, а не рисовать своими. Валюта
+   * различается по регионам, и нарисованный ян в турецкой витрине был бы
+   * прямым обманом игрока.
+   */
+  currencyIcon?: string;
 }
 
 export interface PurchasedItem {
@@ -84,6 +95,18 @@ class MockPlayer {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnySdk = any;
+
+/**
+ * Иконка валюты товара. Отдельная функция, потому что метод может
+ * отсутствовать: витрина без подключённой монетизации отдаёт голые поля.
+ */
+function iconOf(product: AnySdk): string | undefined {
+  try {
+    return product.getPriceCurrencyImage?.('svg') || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export class Platform {
   private readonly ysdk: AnySdk | null;
@@ -323,13 +346,28 @@ export class Platform {
     }
   }
 
-  /** flush=true — немедленная запись на сервер (пройден уровень, куплен товар). */
-  async setData(data: Record<string, unknown>, flush = false): Promise<void> {
-    if (!this.player) return;
+  /**
+   * flush=true — немедленная запись на сервер (пройден уровень, куплен товар).
+   *
+   * Возвращает, ДОШЛА ли запись. Это нужно ровно одному месту — выдаче
+   * покупки: документация площадки требует сначала сохранить данные игрока и
+   * только потом вызывать `consumePurchase`, потому что потреблённая покупка
+   * удаляется безвозвратно. Раньше отсюда возвращался void, отвалившийся и
+   * успешный вызов были неотличимы, и покупка потреблялась в любом случае —
+   * при неудачной записи игрок остался бы и без товара, и без возможности его
+   * восстановить.
+   */
+  async setData(data: Record<string, unknown>, flush = false): Promise<boolean> {
+    if (!this.player) return false;
     try {
-      await Promise.race([this.player.setData(data, flush), timeout(CALL_TIMEOUT_MS, undefined)]);
+      // Таймаут возвращает false: молчащий сервер — это НЕ успешная запись.
+      return await Promise.race([
+        this.player.setData(data, flush).then(() => true),
+        timeout(CALL_TIMEOUT_MS, false),
+      ]);
     } catch (e) {
       console.warn('setData не удался', e);
+      return false;
     }
   }
 
@@ -490,6 +528,9 @@ export class Platform {
         price: String(item.price ?? ''),
         priceValue: String(item.priceValue ?? ''),
         imageURI: item.imageURI,
+        // Метод живёт на объекте товара, поэтому его нужно вызвать здесь:
+        // дальше по коду остаётся уже наш простой объект без методов.
+        currencyIcon: iconOf(item),
       }));
     } catch (e) {
       console.warn('getCatalog не удался', e);

@@ -37,7 +37,8 @@ import {
  */
 export interface ProfileStorage {
   getData(): Promise<Record<string, unknown>>;
-  setData(data: Record<string, unknown>, flush?: boolean): Promise<void>;
+  /** Возвращает, дошла ли запись: выдача покупки на это опирается. */
+  setData(data: Record<string, unknown>, flush?: boolean): Promise<boolean>;
 }
 
 export const SAVE_VERSION = 1;
@@ -118,6 +119,18 @@ interface SaveShape {
   passUntil: string;
   /** Дата последней выдачи ежедневной награды пропуска, YYYY-MM-DD. */
   passClaimed: string;
+  /**
+   * Токены расходуемых покупок, которые уже выданы, но ещё не подтверждены
+   * через `consumePurchase`.
+   *
+   * Обычно список пуст. Он заполняется в одном случае: товар выдан и сохранён,
+   * а consume не прошёл — тогда покупка снова придёт в `getPurchases` при
+   * следующем запуске. Без этого реестра игра выдала бы товар второй раз за
+   * один платёж. Нерасходуемые покупки сюда НЕ попадают: они приходят в списке
+   * всегда (так платформа помнит владение), а их выдача идемпотентна по
+   * природе — флаг и множество скинов.
+   */
+  appliedPurchases: string[];
   settings: Settings;
   /** Сезон, который игрок видел последним — по нему ловится смена сезона. */
   seenSeason: number;
@@ -141,6 +154,15 @@ export const BLIND_BOX_COST = 120;
 export const PASS_DAYS = 7;
 export const PASS_DAILY_COINS = 60;
 export const PASS_DAILY_HINTS = 1;
+
+/**
+ * Сколько токенов выданных покупок держать в сохранении.
+ *
+ * В норме список пуст: токен живёт в нём считанные миллисекунды между записью
+ * и consume. Предел нужен на патологию — площадка стабильно отказывает в
+ * consume, — чтобы сохранение не росло без границ.
+ */
+const APPLIED_PURCHASES_KEPT = 50;
 /** Сколько дубликатов обменивается на бокс. */
 export const DUPLICATES_PER_BOX = 8;
 
@@ -195,6 +217,7 @@ function defaults(): SaveShape {
     noAds: false,
     passUntil: '',
     passClaimed: '',
+    appliedPurchases: [],
     settings: { muted: false, haptics: true },
     seenSeason: currentSeasonId(),
     tutorialSeen: false,
@@ -311,6 +334,11 @@ export class Profile {
       noAds: raw.noAds === true,
       passUntil: str('passUntil', ''),
       passClaimed: str('passClaimed', ''),
+      appliedPurchases: Array.isArray(raw.appliedPurchases)
+        ? (raw.appliedPurchases as unknown[])
+            .filter((x): x is string => typeof x === 'string')
+            .slice(-APPLIED_PURCHASES_KEPT)
+        : [],
       settings: {
         muted: rawSettings.muted === true,
         haptics: rawSettings.haptics !== false,
@@ -355,15 +383,27 @@ export class Profile {
     }, 2500);
   }
 
-  /** Немедленная запись. Для событий, потерю которых игрок заметит. */
-  async flush(force = true): Promise<void> {
-    if (!this.dirty && !force) return;
+  /**
+   * Немедленная запись. Для событий, потерю которых игрок заметит.
+   *
+   * Возвращает, дошла ли запись. Почти всем вызывающим это безразлично (они
+   * зовут её через `void`), но выдача покупки обязана дождаться подтверждения
+   * до `consumePurchase` — см. `App.grantAndConsume`.
+   */
+  async flush(force = true): Promise<boolean> {
+    if (!this.dirty && !force) return true;
     this.dirty = false;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    await this.platform.setData(this.data as unknown as Record<string, unknown>, force);
+    const saved = await this.platform.setData(
+      this.data as unknown as Record<string, unknown>,
+      force
+    );
+    // Не дошло — данные всё ещё грязные, и следующий touch() попробует снова.
+    if (!saved) this.dirty = true;
+    return saved;
   }
 
   // --- Чтение -------------------------------------------------------------
@@ -618,6 +658,34 @@ export class Profile {
     this.data.coins += coins;
     void this.flush();
     return { day: this.data.streakDays, coins };
+  }
+
+  // --- Реестр выданных покупок --------------------------------------------
+
+  /** Этот платёж уже выдан и ждёт только подтверждения. */
+  isPurchaseApplied(token: string): boolean {
+    return this.data.appliedPurchases.includes(token);
+  }
+
+  /** Отметить платёж выданным. Пишется тем же flush, что и сам товар. */
+  notePurchaseApplied(token: string): void {
+    if (this.data.appliedPurchases.includes(token)) return;
+    this.data.appliedPurchases.push(token);
+    if (this.data.appliedPurchases.length > APPLIED_PURCHASES_KEPT) {
+      this.data.appliedPurchases.splice(
+        0,
+        this.data.appliedPurchases.length - APPLIED_PURCHASES_KEPT
+      );
+    }
+    this.dirty = true;
+  }
+
+  /** Платёж подтверждён площадкой — держать его в реестре больше незачем. */
+  forgetPurchase(token: string): void {
+    const i = this.data.appliedPurchases.indexOf(token);
+    if (i < 0) return;
+    this.data.appliedPurchases.splice(i, 1);
+    this.touch();
   }
 
   // --- Недельный пропуск --------------------------------------------------

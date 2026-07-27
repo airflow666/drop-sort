@@ -548,29 +548,89 @@ group('Идентификаторы для консоли площадки', () 
   });
 });
 
+/**
+ * Хранилище в памяти: профилю от площадки нужны только два этих метода.
+ *
+ * `offline` имитирует то, ради чего площадка и требует проверку необработанных
+ * покупок: запись не дошла. Отличить такой случай от успешного — единственный
+ * способ не потребить платёж раньше, чем сохранены выданные по нему товары.
+ */
+function profile(): Profile {
+  return new Profile(storage());
+}
+
+function storage(opts: { offline?: boolean } = {}): ProfileStorage & { offline: boolean } {
+  const store: Record<string, unknown> = {};
+  return {
+    offline: opts.offline === true,
+    async getData() {
+      return store;
+    },
+    async setData(data) {
+      if (this.offline) return false;
+      // Копия, а не ссылка: иначе «перезагрузка» вернула бы тот же объект,
+      // и тест на сохранение проходил бы, ничего не проверяя.
+      Object.assign(store, JSON.parse(JSON.stringify(data)));
+      return true;
+    },
+  };
+}
+
+group('Выдача покупок', () => {
+  // Документация площадки: сначала сохранить данные игрока, потом
+  // consumePurchase — потреблённая покупка удаляется безвозвратно. Отсюда два
+  // требования к профилю: он обязан СООБЩАТЬ, дошла ли запись, и обязан
+  // помнить уже выданные платежи, чтобы повтор не удвоил товар.
+
+  test('flush сообщает об отказе записи', async () => {
+    const offline = storage({ offline: true });
+    const p = new Profile(offline);
+    await p.load();
+    p.addCoins(100);
+    assert.equal(await p.flush(), false, 'отказ записи выдан за успех');
+
+    // Связь восстановилась — следующая попытка проходит.
+    offline.offline = false;
+    assert.equal(await p.flush(), true);
+  });
+
+  test('выданный платёж помнится до подтверждения', () => {
+    const p = profile();
+    assert.equal(p.isPurchaseApplied('token-1'), false);
+    p.notePurchaseApplied('token-1');
+    assert.equal(p.isPurchaseApplied('token-1'), true);
+    // Подтверждён площадкой — держать его в реестре больше незачем.
+    p.forgetPurchase('token-1');
+    assert.equal(p.isPurchaseApplied('token-1'), false);
+  });
+
+  test('реестр платежей переживает перезагрузку', async () => {
+    const platform = storage();
+    const first = new Profile(platform);
+    await first.load();
+    first.notePurchaseApplied('token-2');
+    await first.flush();
+
+    // Ровно тот случай, ради которого реестр и нужен: товар выдан и сохранён,
+    // consume не прошёл, покупка снова придёт в getPurchases. Без памяти о
+    // платеже игра выдала бы товар второй раз за один платёж.
+    const second = new Profile(platform);
+    await second.load();
+    assert.equal(second.isPurchaseApplied('token-2'), true);
+  });
+
+  test('реестр не растёт без предела', () => {
+    const p = profile();
+    for (let i = 0; i < 200; i++) p.notePurchaseApplied(`token-${i}`);
+    assert.equal(p.isPurchaseApplied('token-199'), true, 'свежий платёж потерян');
+    assert.equal(p.isPurchaseApplied('token-0'), false, 'реестр не обрезается');
+  });
+});
+
 group('Недельный пропуск', () => {
   // Пропуск — оплаченный товар, и он обещает конкретное: награду каждый день
   // семь дней подряд. Ошибка в датах здесь не роняет игру, она просто не даёт
   // игроку то, за что он заплатил, — и выясняется это возвратами.
-
-  /** Хранилище в памяти: профилю от площадки нужны только два этих метода. */
-  function storage(): ProfileStorage {
-    const store: Record<string, unknown> = {};
-    return {
-      async getData() {
-        return store;
-      },
-      async setData(data) {
-        // Копия, а не ссылка: иначе «перезагрузка» вернула бы тот же объект,
-        // и тест на сохранение проходил бы, ничего не проверяя.
-        Object.assign(store, JSON.parse(JSON.stringify(data)));
-      },
-    };
-  }
-
-  function profile(): Profile {
-    return new Profile(storage());
-  }
 
   test('без покупки пропуска нет', () => {
     const p = profile();

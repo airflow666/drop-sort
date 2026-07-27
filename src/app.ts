@@ -542,12 +542,45 @@ export class App {
       this.toast(t('toast.purchaseFailed'));
       return;
     }
-    this.applyPurchase(productId);
-    // Расходуемые товары нужно подтверждать, иначе их нельзя купить повторно.
-    if (isConsumable(productId)) {
-      await this.platform.consume(token);
-    }
+    await this.grantAndConsume(productId, token);
     await this.showShop();
+  }
+
+  /**
+   * Выдать оплаченный товар и подтвердить платёж — в порядке, который требует
+   * площадка.
+   *
+   * Порядок здесь не стилистический. Документация по инап-покупкам говорит
+   * прямо: сначала модифицировать данные игрока, и только потом вызывать
+   * `consumePurchase`, потому что потреблённая покупка удаляется безвозвратно.
+   * Раньше выдача и подтверждение шли подряд: `applyPurchase` ставил флаги в
+   * памяти (часть — с отложенной записью на 2,5 секунды), а `consume`
+   * улетал сразу. Отвалившееся сохранение оставляло игрока без товара и без
+   * платежа, восстановить который уже нечем.
+   *
+   * Поэтому: выдать → ДОЖДАТЬСЯ подтверждённой записи → и только тогда
+   * подтвердить платёж. Если запись не дошла, платёж остаётся необработанным
+   * НАМЕРЕННО: он придёт в `getPurchases` при следующем запуске, и товар
+   * выдастся тогда. Это и есть штатный механизм восстановления, а не авария.
+   */
+  private async grantAndConsume(productId: string, token: string): Promise<void> {
+    const consumable = isConsumable(productId);
+
+    // Тот же платёж уже выдан и сохранён, не прошло только подтверждение —
+    // выдавать второй раз нельзя, иначе один платёж даст два товара.
+    if (!(consumable && this.profile.isPurchaseApplied(token))) {
+      this.applyPurchase(productId);
+      if (consumable) this.profile.notePurchaseApplied(token);
+      const saved = await this.profile.flush();
+      if (!saved) return;
+    }
+
+    // Расходуемые товары нужно подтверждать, иначе их нельзя купить повторно.
+    // Нерасходуемые не подтверждаем никогда: непотреблённая покупка — это и
+    // есть память платформы о владении.
+    if (!consumable) return;
+    await this.platform.consume(token);
+    this.profile.forgetPurchase(token);
   }
 
   /** Скин за внутриигровые монеты. */
@@ -617,7 +650,12 @@ export class App {
   }
 
   /**
-   * Незакрытые покупки с прошлого запуска: выдать товар, который уже оплачен.
+   * Проверка необработанных покупок — на каждом запуске игры.
+   *
+   * Площадка называет эту проверку обязательной для модерации (п. 1.13.1):
+   * оборвавшийся интернет между оплатой и начислением оставляет платёж
+   * необработанным, и без такой проверки игрок теряет оплаченное. Отсюда же
+   * восстанавливается владение нерасходуемыми товарами на новом устройстве.
    *
    * Подтверждаются (consume) только расходуемые товары. У платформы нет
    * отдельного типа «навсегда»: непотреблённая покупка просто продолжает
@@ -630,10 +668,7 @@ export class App {
   async redeemPendingPurchases(): Promise<void> {
     const pending = await this.platform.pendingPurchases();
     for (const purchase of pending) {
-      this.applyPurchase(purchase.productID);
-      if (isConsumable(purchase.productID)) {
-        await this.platform.consume(purchase.purchaseToken);
-      }
+      await this.grantAndConsume(purchase.productID, purchase.purchaseToken);
     }
   }
 

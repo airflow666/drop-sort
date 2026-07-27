@@ -459,6 +459,37 @@ export const SHOP_PRODUCTS: readonly ShopProduct[] = [
   },
 ];
 
+/**
+ * Кнопка цены: число из каталога плюс иконка валюты оттуда же.
+ *
+ * Требование п. 1.13.2 — портальная валюта определяется автоматически, её
+ * название и иконку берут из свойств товара. Своя нарисованная монетка здесь
+ * была бы не мелочью: валюта различается по регионам, и нарисованный ян в
+ * турецкой витрине показывал бы игроку не ту цену, которую с него возьмут.
+ *
+ * `priceValue` — это только число; когда иконки нет (каталог без монетизации,
+ * старый SDK), показываем `price`, где валюта уже вписана строкой.
+ */
+function priceButton(item: CatalogItem | undefined, onClick: () => void): HTMLButtonElement {
+  const btn = button('', 'btn btn--primary btn--sm', onClick);
+  if (!item) {
+    btn.textContent = '—';
+    return btn;
+  }
+  if (item.currencyIcon && item.priceValue) {
+    add(
+      btn,
+      el('span', 'price__value', { text: item.priceValue }),
+      el('img', 'price__icon', { src: item.currencyIcon, alt: '', 'aria-hidden': 'true' })
+    );
+    // Скринридеру картинка ничего не скажет — цена с валютой уходит в подпись.
+    btn.setAttribute('aria-label', item.price || item.priceValue);
+    return btn;
+  }
+  btn.textContent = item.price || item.priceValue || '—';
+  return btn;
+}
+
 export function createShop(
   profile: Profile,
   catalog: CatalogItem[],
@@ -563,7 +594,7 @@ export function createShop(
         ? button(t('shop.equip'), 'btn btn--ghost btn--sm', () => opts.onApplySkin(product.id))
         : owned
           ? el('span', 'mode__status', { text: t('shop.owned') })
-          : button(listed?.price || '—', 'btn btn--primary btn--sm', () => opts.onBuy(product.id));
+          : priceButton(listed, () => opts.onBuy(product.id));
     if (!owned && !listed && action instanceof HTMLButtonElement) {
       // Каталог не пришёл (нет сети или монетизация не включена в консоли) —
       // кнопка неактивна, но товар видно: так понятнее, чем пустой экран.
