@@ -121,8 +121,6 @@ const RU = {
 
   'product.hints10.title': '10 подсказок',
   'product.hints10.note': 'Подсказка показывает следующий ход. Без рекламы.',
-  'product.noAds.title': 'Убрать рекламу',
-  'product.noAds.note': 'Отключает фулскрины и баннер. Rewarded остаются по желанию.',
   'product.weekPass.title': 'Недельный пропуск',
   'product.weekPass.note': '60 монет и подсказка каждый день, 7 дней подряд. Первый день сразу.',
   'product.skinChrome.title': 'Скин витрин «Хром»',
@@ -142,6 +140,13 @@ const RU = {
   'deadlock.title': 'Ходов больше нет',
   'deadlock.canHelp': 'Все витрины заняты. Свободная витрина расшивает любой тупик.',
   'deadlock.noHelp': 'Все витрины заняты. Этот уровень решается — попробуйте другой порядок.',
+  // Тупик, доказанный солвером: ходы на поле ещё есть, и говорить «ходов
+  // больше нет» игроку, который их видит, значит спорить с экраном.
+  'deadlock.provenTitle': 'Выиграть уже нельзя',
+  'deadlock.provenCanHelp':
+    'Ходы ещё есть, но ни один не ведёт к победе. Свободная витрина расшивает такой тупик.',
+  'deadlock.provenNoHelp':
+    'Ходы ещё есть, но ни один не ведёт к победе. Уровень решается — попробуйте другой порядок.',
   'deadlock.extraShelf': '▶ +1 свободная витрина',
 
   // ─── Итог блица ─────────────────────────────────────────────────────────
@@ -227,7 +232,6 @@ const RU = {
   'toast.seasonComplete': 'Серия собрана целиком! +500',
   'toast.purchaseFailed': 'Покупка не завершена',
   'toast.hintsAdded': '+10 подсказок',
-  'toast.adsDisabled': 'Реклама отключена',
   'toast.passDay': 'Пропуск: +{coins} и +{hints} подсказка. Осталось дней: {days}',
   'toast.skinApplied': 'Скин применён',
   'toast.idleHint': 'Застряли? Подсказка покажет ход',
@@ -443,8 +447,6 @@ const EN: Record<Key, string> = {
 
   'product.hints10.title': '10 hints',
   'product.hints10.note': 'A hint shows the next move. No video needed.',
-  'product.noAds.title': 'Remove ads',
-  'product.noAds.note': 'Turns off fullscreen ads and the banner. Rewarded videos stay optional.',
   'product.weekPass.title': 'Weekly pass',
   'product.weekPass.note': '60 coins and a hint every day for 7 days. Day one lands right away.',
   'product.skinChrome.title': '“Chrome” case skin',
@@ -462,6 +464,11 @@ const EN: Record<Key, string> = {
   'deadlock.title': 'No moves left',
   'deadlock.canHelp': 'Every case is taken. An empty case breaks any dead end.',
   'deadlock.noHelp': 'Every case is taken. This level is solvable — try another order.',
+  'deadlock.provenTitle': 'No way to win left',
+  'deadlock.provenCanHelp':
+    'Moves are still there, but none of them wins. An empty case breaks such a dead end.',
+  'deadlock.provenNoHelp':
+    'Moves are still there, but none of them wins. The level is solvable — try another order.',
   'deadlock.extraShelf': '▶ +1 empty case',
 
   'blitz.record': 'New record!',
@@ -537,7 +544,6 @@ const EN: Record<Key, string> = {
   'toast.seasonComplete': 'Series completed! +500',
   'toast.purchaseFailed': 'The purchase was not completed',
   'toast.hintsAdded': '+10 hints',
-  'toast.adsDisabled': 'Ads turned off',
   'toast.passDay': 'Pass: +{coins} and +{hints} hint. Days left: {days}',
   'toast.skinApplied': 'Skin applied',
   'toast.idleHint': 'Stuck? A hint will show you a move',

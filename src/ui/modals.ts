@@ -108,7 +108,7 @@ export function showVictory(
 export type DeadlockChoice = 'extraShelf' | 'restart' | 'menu';
 
 /**
- * Ходов больше нет.
+ * Партия зашла в тупик.
  *
  * Это единственный корректный момент для предложения «+1 витрина» (план, §10):
  * предложение по таймеру игрок воспринимает как навязчивую рекламу, а в тупике
@@ -117,15 +117,26 @@ export type DeadlockChoice = 'extraShelf' | 'restart' | 'menu';
  * В соревновательных режимах спасения нет: там тупик — это цена ошибки, и
  * продавать выход из неё за ролик значило бы продавать место в таблице.
  * Уровень при этом гарантированно решаем, так что «Заново» — честный выход.
+ *
+ * `proven` различает два тупика с разным текстом. Обычный — ходов физически
+ * нет. Доказанный солвером — ходы есть, но ни один не ведёт к победе; здесь
+ * заголовок «Ходов больше нет» противоречил бы полю, на которое игрок в этот
+ * момент смотрит.
  */
 export function showDeadlock(
   root: HTMLElement,
-  opts: { canExtraShelf: boolean }
+  opts: { canExtraShelf: boolean; proven?: boolean }
 ): Promise<DeadlockChoice> {
   return new Promise((resolve) => {
     const { root: box, actions } = card(
-      t('deadlock.title'),
-      opts.canExtraShelf ? t('deadlock.canHelp') : t('deadlock.noHelp')
+      opts.proven ? t('deadlock.provenTitle') : t('deadlock.title'),
+      opts.proven
+        ? opts.canExtraShelf
+          ? t('deadlock.provenCanHelp')
+          : t('deadlock.provenNoHelp')
+        : opts.canExtraShelf
+          ? t('deadlock.canHelp')
+          : t('deadlock.noHelp')
     );
     let close = () => {};
     const pick = (choice: DeadlockChoice) => {

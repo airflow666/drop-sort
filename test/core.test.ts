@@ -35,7 +35,7 @@ import {
   type ProfileStorage,
 } from '../src/meta/profile';
 import { addDays, dayKey, daysBetween, installClock, now, resetClock } from '../src/platform/clock';
-import { dailyLevel } from '../src/levels/provider';
+import { campaignLevel, dailyLevel } from '../src/levels/provider';
 import {
   easeBack,
   easeBounce,
@@ -94,6 +94,51 @@ async function run(): Promise<void> {
       console.log(`  ✗ ${item.name}`);
     }
   }
+}
+
+/**
+ * Решается ли расклад — полным обходом, без единой эвристики.
+ *
+ * Намеренно наивно и намеренно медленно: это эталон для сверки с findHint, и
+ * общего кода у них быть не должно. Отсечка одна — «это состояние уже видели»,
+ * и она ничего не теряет: порядок витрин не значим, а повторный приход в то же
+ * состояние не открывает новых продолжений.
+ */
+function solvableByFullSearch(board: Board): boolean {
+  const cap = board.capacity;
+  const key = (sh: number[][]): string =>
+    sh
+      .map((s) => s.join(','))
+      .sort()
+      .join('|');
+  const isLocked = (s: number[]): boolean => s.length === cap && s.every((x) => x === s[0]);
+  const isDone = (sh: number[][]): boolean => sh.every((s) => s.length === 0 || isLocked(s));
+
+  const start = board.shelves.map((s) => s.slice());
+  const seen = new Set([key(start)]);
+  let frontier = [start];
+  while (frontier.length > 0) {
+    const next: number[][][] = [];
+    for (const state of frontier) {
+      if (isDone(state)) return true;
+      for (let from = 0; from < state.length; from++) {
+        if (state[from].length === 0 || isLocked(state[from])) continue;
+        const species = state[from][state[from].length - 1];
+        for (let to = 0; to < state.length; to++) {
+          if (to === from || state[to].length >= cap || isLocked(state[to])) continue;
+          if (state[to].length > 0 && state[to][state[to].length - 1] !== species) continue;
+          const copy = state.map((s) => s.slice());
+          copy[to].push(copy[from].pop()!);
+          const k = key(copy);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          next.push(copy);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return false;
 }
 
 function level(shelves: Shelf[], capacity = 4, speciesCount?: number): LevelSpec {
@@ -357,6 +402,62 @@ group('Подсказка', () => {
     assert.equal(hint.deadEnd, true);
   });
 
+  test('безнадёжный расклад доказывается урезанным бюджетом автопроверки', () => {
+    // App.checkDeadEnd гоняет солвер после КАЖДОГО хода, поэтому бюджет там
+    // урезан до 20 мс: партия должна завершаться сама, не дожидаясь, пока
+    // игрок потратит подсказку на сообщение «выиграть уже нельзя».
+    const b = new Board(level([[1, 0, 1], [0, 2, 1], [0, 2, 2], []], 3, 3));
+    assert.equal(findHint(b, 20)?.deadEnd, true);
+  });
+
+  test('deadEnd не объявляется на решаемом раскладе (сверка с полным обходом)', () => {
+    // Самая дорогая ошибка этой механики — ложное срабатывание: партию
+    // завершат словами «выиграть уже нельзя» ровно в тот момент, когда выиграть
+    // ещё можно. Поэтому каждый объявленный тупик здесь перепроверяется
+    // НЕЗАВИСИМЫМ полным обходом: BFS по всему достижимому пространству, без
+    // эвристик и отсечек, которыми пользуется findHint.
+    let claimed = 0;
+    for (let i = 1; i <= 24; i++) {
+      const board = new Board(campaignLevel(i * 17));
+      for (let step = 0; step < 40; step++) {
+        if (board.isSolved || board.isDeadlock) break;
+        const moves: Array<[number, number]> = [];
+        for (let a = 0; a < board.shelfCount; a++) {
+          for (let b = 0; b < board.shelfCount; b++) {
+            if (a !== b && board.canMove(a, b)) moves.push([a, b]);
+          }
+        }
+        if (moves.length === 0) break;
+        // Порядок ходов детерминированный: тест не должен быть флаки.
+        const [from, to] = moves[(i * 31 + step * 17) % moves.length];
+        board.tap(from);
+        board.tap(to);
+        if (findHint(board, 80)?.deadEnd) {
+          claimed++;
+          assert.equal(
+            solvableByFullSearch(board),
+            false,
+            `deadEnd на решаемом раскладе: ${JSON.stringify(board.shelves)}`
+          );
+          break;
+        }
+      }
+    }
+    // Если тупиков не встретилось вовсе, проверять было нечего — это уже не
+    // тест, и молчаливое «прошло» здесь опаснее падения.
+    assert.ok(claimed > 0, 'ни одного тупика не встретилось — сверять было нечего');
+  });
+
+  test('на решаемом раскладе автопроверка не объявляет тупик', () => {
+    // Ложное срабатывание завершило бы выигрышную партию, поэтому deadEnd
+    // ставится только доказанным перебором: исчерпанный бюджет всегда даёт
+    // false, каким бы маленьким он ни был.
+    const b = new Board(level([[0, 1], [1, 0], []], 2, 2));
+    for (const budget of [1, 20, 80]) {
+      assert.equal(findHint(b, budget)?.deadEnd, false, `бюджет ${budget} мс`);
+    }
+  });
+
   test('подсказка возвращается быстро даже на большом поле', () => {
     // 8 видов, 12 витрин — верх кривой сложности из плана (§6).
     const shelves: Shelf[] = [];
@@ -534,7 +635,6 @@ group('Идентификаторы для консоли площадки', () 
       ['hints_10', 'product.hints10.title', 'product.hints10.note'],
       ['week_pass', 'product.weekPass.title', 'product.weekPass.note'],
       ['skin_chrome', 'product.skinChrome.title', 'product.skinChrome.note'],
-      ['no_ads', 'product.noAds.title', 'product.noAds.note'],
     ];
     for (const lang of ['ru', 'en'] as const) {
       setLanguage(lang);
@@ -554,10 +654,9 @@ group('Идентификаторы для консоли площадки', () 
   });
 
   test('нерасходуемые товары не считаются расходуемыми', () => {
-    // «Убрать рекламу» и скины подтверждать нельзя: платформа хранит факт
-    // владения именно непотреблённой покупкой. Потребить их значит забыть
-    // о покупке при следующем запуске.
-    assert.equal(isConsumable('no_ads'), false);
+    // Скины подтверждать нельзя: платформа хранит факт владения именно
+    // непотреблённой покупкой. Потребить их значит забыть о покупке при
+    // следующем запуске.
     assert.equal(isConsumable('skin_chrome'), false);
     assert.equal(isConsumable('hints_10'), true);
   });

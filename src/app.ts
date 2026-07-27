@@ -22,12 +22,7 @@ import { blitzLevel, campaignLevel, dailyLevel } from './levels/provider';
 import { now } from './platform/clock';
 import { BLIND_BOX_COST, isCompetitive, PASS_DAYS, Profile, type GameMode } from './meta/profile';
 import { Ads } from './platform/ads';
-import {
-  isConsumable,
-  PRODUCT_HINTS,
-  PRODUCT_NO_ADS,
-  PRODUCT_WEEK_PASS,
-} from './platform/ids';
+import { isConsumable, PRODUCT_HINTS, PRODUCT_WEEK_PASS } from './platform/ids';
 import { Audio, Haptics } from './platform/audio';
 import type { Platform } from './platform/sdk';
 import { Background } from './render/background';
@@ -73,6 +68,14 @@ import {
 /** Через сколько бездействия подсветить кнопку подсказки (план, §8). */
 const IDLE_HINT_MS = 20_000;
 
+/**
+ * Бюджет автопроверки на безнадёжный расклад после каждого хода
+ * (см. App.checkDeadEnd). Двадцать миллисекунд — это примерно кадр: на
+ * замерах пакетов девять проверок из десяти укладываются в две миллисекунды,
+ * а верхняя граница остаётся предсказуемой и не рвёт анимацию перекладки.
+ */
+const DEAD_END_BUDGET_MS = 20;
+
 interface Session {
   mode: GameMode;
   spec: LevelSpec;
@@ -95,6 +98,19 @@ interface Session {
   score: number;
   setsClosed: number;
   step: number;
+  /**
+   * Партия уже завершена — итог считается и показывается.
+   *
+   * Флаг ставится СИНХРОННО, первой строкой finishBlitz. Без него забег
+   * заканчивался столько раз, сколько кадров успевало пройти до первого
+   * await внутри finishBlitz: тикер видит `timeLeft <= 0` и `this.session`
+   * ещё живым (сессия сносится только после отправки очков) и зовёт
+   * finishBlitz заново каждый кадр. Каждая копия начисляла монеты и
+   * монтировала свой showBlitzResult — стопка одинаковых оверлеев, где
+   * нажатие закрывает верхний, а под ним оказывается такой же. Ровно то,
+   * что в отчёте QA выглядит как «меню не реагирует ни на какую кнопку».
+   */
+  over: boolean;
 }
 
 export class App {
@@ -251,8 +267,8 @@ export class App {
     // приходит вовсе, поэтому подписка ничего не стоит.
     this.platform.onHistoryBack(() => void this.onHistoryBack());
 
-    // Sticky-баннер на всю сессию, но не для тех, кто купил «без рекламы».
-    if (!this.profile.noAds) void this.ads.showSticky();
+    // Sticky-баннер на всю сессию.
+    void this.ads.showSticky();
 
     this.exposeDebugApi();
 
@@ -343,7 +359,7 @@ export class App {
     this.stage.position.set(offset.x, offset.y);
 
     const session = this.session;
-    if (!session || this.paused || this.ads.isBusy) return;
+    if (!session || session.over || this.paused || this.ads.isBusy) return;
 
     session.view.update(dt);
 
@@ -672,11 +688,6 @@ export class App {
         this.profile.addHints(10);
         this.toast(t('toast.hintsAdded'));
         break;
-      case PRODUCT_NO_ADS:
-        this.profile.enableNoAds();
-        void this.platform.hideBanner();
-        this.toast(t('toast.adsDisabled'));
-        break;
       case PRODUCT_WEEK_PASS:
         // Пропуск именно недельный: он ставит дату окончания и выдаёт первую
         // из семи ежедневных наград сразу, чтобы покупка что-то дала прямо
@@ -875,6 +886,7 @@ export class App {
         },
         onSolved: () => void this.onLevelSolved(),
         onDeadlock: () => void this.onDeadlock(),
+        onSettled: () => void this.checkDeadEnd(),
       },
     });
 
@@ -891,6 +903,7 @@ export class App {
       score: 0,
       setsClosed: 0,
       step: 0,
+      over: false,
     };
 
     this.stage.addChildAt(view, 1);
@@ -1009,7 +1022,7 @@ export class App {
       // (ровно баг из отчёта QA) — вместо этого сразу завершаем партию тем же
       // экраном, что и обычный тупик. Заряд возвращаем: подсказка не помогла.
       this.profile.addHints(1);
-      await this.onDeadlock();
+      await this.onDeadlock(true);
       return;
     }
     session.usedHint = true;
@@ -1053,7 +1066,37 @@ export class App {
 
   // --- Исходы -------------------------------------------------------------
 
-  private async onDeadlock(): Promise<void> {
+  /**
+   * Расклад стал безнадёжным — завершить партию, не дожидаясь подсказки.
+   *
+   * Тупик бывает двух видов. Первый — ходов физически нет, его ловит
+   * `Board.isDeadlock` сразу после хода. Второй — ходы есть, но ни один из
+   * них уже не ведёт к победе: фигурка заперта под чужим видом, свободных
+   * витрин не осталось, и игроку остаётся бесконечно перекладывать одно и то
+   * же. Раньше о втором игра узнавала ТОЛЬКО когда игрок тратил подсказку —
+   * то есть платил за сообщение «партия проиграна». Теперь солвер спрашивается
+   * сам, после каждого хода, и партия завершается тем же экраном, что и
+   * обычный тупик.
+   *
+   * Бюджет здесь меньше, чем у подсказки (DEAD_END_BUDGET_MS против 80 мс):
+   * проверка идёт на каждом ходу, и её стоимость — это кадры, отнятые у
+   * анимации, а в блице ещё и секунды забега. Урезанный бюджет не даёт ложных
+   * срабатываний: `deadEnd` ставится, только если перебор ДОШЁЛ до верхнего
+   * порога, а исчерпанный бюджет всегда даёт `deadEnd: false`. Он лишь делает
+   * проверку неполной — редкий тупик с большим деревом доказательства
+   * останется незамеченным здесь и будет пойман подсказкой, как раньше.
+   */
+  private async checkDeadEnd(): Promise<void> {
+    const session = this.session;
+    if (!session || session.over) return;
+    const hint = findHint(session.board, DEAD_END_BUDGET_MS);
+    if (!hint?.deadEnd) return;
+    if (this.session !== session || session.over) return;
+    await this.onDeadlock(true);
+  }
+
+  /** `proven` — тупик доказан солвером, ходы на поле при этом ещё есть. */
+  private async onDeadlock(proven = false): Promise<void> {
     const session = this.session;
     if (!session) return;
     // В блице тупик не блокирует забег: просто выдаём следующий уровень,
@@ -1066,6 +1109,7 @@ export class App {
     this.platform.gameplayStop();
     const choice = await showDeadlock(this.uiRoot, {
       canExtraShelf: !isCompetitive(session.mode),
+      proven,
     });
     if (choice === 'extraShelf') {
       const rewarded = await this.ads.rewarded('extraShelf');
@@ -1175,13 +1219,13 @@ export class App {
 
       // «Следующая витрина» — вот здесь и только здесь фулскрин.
       //
-      // Зовём всегда (кроме купленного «без рекламы»), а показывать или нет,
-      // решает src/platform/ads.ts: там интервал и счётчик переходов. Раньше
-      // часть решения жила здесь — пропуск после rewarded, — и из-за этого
-      // счётчик переходов в рекламном слое сбивался.
+      // Зовём всегда, а показывать или нет, решает src/platform/ads.ts: там
+      // интервал и счётчик переходов. Раньше часть решения жила здесь —
+      // пропуск после rewarded, — и из-за этого счётчик переходов в рекламном
+      // слое сбивался.
       const next = session.levelNumber + 1;
       this.teardownSession();
-      if (!this.profile.noAds) await this.ads.interstitial();
+      await this.ads.interstitial();
       this.startCampaignLevel(next);
       return;
     }
@@ -1222,6 +1266,7 @@ export class App {
         },
         onSolved: () => void this.onLevelSolved(),
         onDeadlock: () => void this.onDeadlock(),
+        onSettled: () => void this.checkDeadEnd(),
       },
     });
 
@@ -1240,7 +1285,10 @@ export class App {
 
   private async finishBlitz(): Promise<void> {
     const session = this.session;
-    if (!session) return;
+    if (!session || session.over) return;
+    // Синхронно, до первого await: дальше идут отправка очков и запрос места,
+    // а тикер всё это время продолжает видеть `timeLeft <= 0` (см. Session.over).
+    session.over = true;
     this.platform.gameplayStop();
     const score = session.score;
     const sets = session.setsClosed;

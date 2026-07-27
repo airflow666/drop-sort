@@ -31,12 +31,7 @@ import { brand, formatNumber, pluralize, t, type Key } from '../i18n';
 import type { Profile } from '../meta/profile';
 import { BLIND_BOX_COST, DUPLICATES_PER_BOX } from '../meta/profile';
 import type { CatalogItem, LeaderboardEntry } from '../platform/sdk';
-import {
-  PRODUCT_HINTS,
-  PRODUCT_NO_ADS,
-  PRODUCT_SKIN_CHROME,
-  PRODUCT_WEEK_PASS,
-} from '../platform/ids';
+import { PRODUCT_HINTS, PRODUCT_SKIN_CHROME, PRODUCT_WEEK_PASS } from '../platform/ids';
 import { add, button, el, formatClock, iconButton } from './dom';
 
 export interface Screen {
@@ -450,7 +445,6 @@ export interface ShopProduct {
 
 export const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: PRODUCT_HINTS, titleKey: 'product.hints10.title', noteKey: 'product.hints10.note' },
-  { id: PRODUCT_NO_ADS, titleKey: 'product.noAds.title', noteKey: 'product.noAds.note' },
   { id: PRODUCT_WEEK_PASS, titleKey: 'product.weekPass.title', noteKey: 'product.weekPass.note' },
   {
     id: PRODUCT_SKIN_CHROME,
@@ -561,9 +555,7 @@ export function createShop(
 
   for (const product of SHOP_PRODUCTS) {
     const listed = catalog.find((c) => c.id === product.id);
-    const owned =
-      (product.id === PRODUCT_NO_ADS && profile.noAds) ||
-      (product.id.startsWith('skin_') && profile.ownsSkin(product.id));
+    const owned = product.id.startsWith('skin_') && profile.ownsSkin(product.id);
 
     const card = el('div', 'mode');
     const text = el('span', 'mode__text');

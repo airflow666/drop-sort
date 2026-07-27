@@ -107,7 +107,6 @@ interface SaveShape {
    * космической. Позиция же есть всегда, и её понимает ядро.
    */
   loadout: Record<string, string>;
-  noAds: boolean;
   /**
    * Последний день действия недельного пропуска, YYYY-MM-DD. Пустая строка —
    * пропуска нет.
@@ -220,7 +219,6 @@ function defaults(): SaveShape {
     ownedSkins: [],
     activeSkin: '',
     loadout: {},
-    noAds: false,
     passUntil: '',
     passClaimed: '',
     appliedPurchases: [],
@@ -346,7 +344,6 @@ export class Profile {
         : [],
       activeSkin: str('activeSkin', ''),
       loadout,
-      noAds: raw.noAds === true,
       passUntil: str('passUntil', ''),
       passClaimed: str('passClaimed', ''),
       appliedPurchases: Array.isArray(raw.appliedPurchases)
@@ -446,9 +443,6 @@ export class Profile {
   }
   get streakDays(): number {
     return this.data.streakDays;
-  }
-  get noAds(): boolean {
-    return this.data.noAds;
   }
   get settings(): Settings {
     return this.data.settings;
@@ -830,11 +824,6 @@ export class Profile {
 
   get activeSkin(): string {
     return this.data.activeSkin;
-  }
-
-  enableNoAds(): void {
-    this.data.noAds = true;
-    void this.flush();
   }
 
   // --- Обучение -----------------------------------------------------------

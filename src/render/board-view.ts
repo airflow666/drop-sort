@@ -28,6 +28,15 @@ export interface BoardCallbacks {
   onSolved?(): void;
   /** Ходов больше нет — момент для предложения «+1 витрина». */
   onDeadlock?(): void;
+  /**
+   * Ход доигран, поле не собрано и ходы формально ещё есть.
+   *
+   * Отдельный колбэк нужен, потому что «ходы есть» и «партию можно выиграть»
+   * — не одно и то же: расклад бывает уже безнадёжным, а витрины при этом
+   * позволяют перекладывать фигурки сколько угодно. Проверить это может
+   * только солвер, а он живёт снаружи рендера.
+   */
+  onSettled?(): void;
   /** Любой состоявшийся ход — чтобы обновить счётчик ходов в HUD. */
   onMove?(): void;
 }
@@ -668,6 +677,8 @@ export class BoardView extends Container {
       this.callbacks.onSolved?.();
     } else if (this.board.isDeadlock) {
       this.callbacks.onDeadlock?.();
+    } else {
+      this.callbacks.onSettled?.();
     }
   }
 

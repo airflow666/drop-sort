@@ -403,10 +403,21 @@ check(
   'на итоге блица есть кнопка шеринга',
   (await page.getByText('Поделиться результатом').count()) === 1
 );
+// Ровно один оверлей: finishBlitz зовётся из тикера, и без флага «партия
+// окончена» он успевал отработать столько раз, сколько кадров проходило до
+// первого await внутри него. Стопка одинаковых карточек результата выглядит
+// как исправная — но нажатие закрывает верхнюю, а под ней такая же, и меню
+// «не реагирует ни на какую кнопку».
+const resultOverlays = await page.locator('.overlay').count();
+check('итог блица смонтирован один раз', resultOverlays === 1, `оверлеев: ${resultOverlays}`);
 await page.screenshot({ path: `${OUT}/smoke-08-blitz-result.png` });
 
 await page.locator('.card__actions button').last().click(); // в меню
 await page.waitForSelector('.brand', { timeout: 5000 });
+await page.waitForFunction(() => document.querySelectorAll('.overlay').length === 0, null, {
+  timeout: 5000,
+});
+check('«В меню» убирает карточку результата', true);
 
 // --- Коллекция ------------------------------------------------------------
 phase('коллекция');

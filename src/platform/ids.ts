@@ -33,22 +33,16 @@ export const LEADERBOARDS = [LEADERBOARD_BLITZ, LEADERBOARD_DAILY] as const;
 // --- Товары -----------------------------------------------------------------
 
 export const PRODUCT_HINTS = 'hints_10';
-export const PRODUCT_NO_ADS = 'no_ads';
 export const PRODUCT_WEEK_PASS = 'week_pass';
 export const PRODUCT_SKIN_CHROME = 'skin_chrome';
 
-export const PRODUCT_IDS = [
-  PRODUCT_HINTS,
-  PRODUCT_NO_ADS,
-  PRODUCT_WEEK_PASS,
-  PRODUCT_SKIN_CHROME,
-] as const;
+export const PRODUCT_IDS = [PRODUCT_HINTS, PRODUCT_WEEK_PASS, PRODUCT_SKIN_CHROME] as const;
 
 /**
  * Расходуемые товары — те, которые можно купить повторно.
  *
- * «Убрать рекламу» и скины сюда не входят: факт владения ими хранит сама
- * платформа тем, что покупка остаётся непотреблённой.
+ * Скины сюда не входят: факт владения ими хранит сама платформа тем, что
+ * покупка остаётся непотреблённой.
  */
 export const CONSUMABLE_PRODUCTS: readonly string[] = [PRODUCT_HINTS, PRODUCT_WEEK_PASS];
 

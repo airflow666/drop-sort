@@ -73,6 +73,17 @@ function timeout<T>(ms: number, value: T): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
+/**
+ * Задержка сетевых методов заглушки.
+ *
+ * Заглушка, отвечающая в том же тике, — это не «быстрая заглушка», а другой
+ * контракт: на площадке между вызовом и ответом проходят десятки кадров, и
+ * ровно в этом промежутке живут гонки вроде «итог блица смонтирован дважды»
+ * (см. Session.over в src/app.ts). Пока лидерборд заглушки отвечал мгновенно,
+ * смоук-тест такой гонки не видел в принципе.
+ */
+const MOCK_NETWORK_MS = 250;
+
 function mockLog(...args: unknown[]): void {
   console.log('[YSDK-mock]', ...args);
   const w = window as unknown as { __ysdkMockLog?: string[] };
@@ -404,17 +415,6 @@ export class Platform {
     }
   }
 
-  async hideBanner(): Promise<void> {
-    if (!this.bannerShown) return;
-    this.bannerShown = false;
-    if (this.isMock) return void mockLog('hideBannerAdv');
-    try {
-      await this.ysdk.adv.hideBannerAdv();
-    } catch (e) {
-      console.warn('hideBannerAdv не удался', e);
-    }
-  }
-
   // --- Сохранения ---------------------------------------------------------
 
   async getData(): Promise<Record<string, unknown>> {
@@ -510,6 +510,7 @@ export class Platform {
       } catch {
         /* приватный режим */
       }
+      await timeout(MOCK_NETWORK_MS, null);
       return void mockLog('setLeaderboardScore', leaderboard, score);
     }
     const lb = await this.getLeaderboards();
@@ -531,6 +532,7 @@ export class Platform {
    */
   async fetchPlayerRank(leaderboard: string): Promise<number | null> {
     if (this.isMock) {
+      await timeout(MOCK_NETWORK_MS, null);
       const entries = this.mockLeaderboard(leaderboard, 10);
       return entries.find((e) => e.self)?.rank ?? null;
     }

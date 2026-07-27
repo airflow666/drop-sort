@@ -25,12 +25,7 @@ import { chromium } from 'playwright-core';
 import { figurineLook, seasonById } from '../src/theme/seasons';
 import { figurineSvg } from '../src/theme/figurines';
 import { skinByProductId } from '../src/theme/skins';
-import {
-  PRODUCT_HINTS,
-  PRODUCT_NO_ADS,
-  PRODUCT_SKIN_CHROME,
-  PRODUCT_WEEK_PASS,
-} from '../src/platform/ids';
+import { PRODUCT_HINTS, PRODUCT_SKIN_CHROME, PRODUCT_WEEK_PASS } from '../src/platform/ids';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const OUT = 'store/products';
@@ -71,25 +66,6 @@ function bulbIcon(): string {
     <rect x="34" y="69" width="32" height="7" rx="3.5" fill="#8a7a4a"/>
     <rect x="37" y="79" width="26" height="6" rx="3" fill="#6d5f38"/>
     <path d="M41 90 h18" stroke="#6d5f38" stroke-width="5" stroke-linecap="round"/>
-  </svg>`;
-}
-
-/** Перечёркнутый значок ролика — «без рекламы». */
-function noAdsIcon(): string {
-  return `<svg viewBox="0 0 100 100">
-    <defs>
-      <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#5b6a80"/>
-        <stop offset="100%" stop-color="#2c3547"/>
-      </linearGradient>
-    </defs>
-    <rect x="12" y="20" width="76" height="52" rx="9" fill="url(#screen)"/>
-    <rect x="12" y="20" width="76" height="52" rx="9" fill="none"
-          stroke="#8fa3b8" stroke-width="2.5" opacity=".8"/>
-    <path d="M42 36 L64 46 L42 56 Z" fill="#c8d6e6" opacity=".85"/>
-    <rect x="36" y="78" width="28" height="6" rx="3" fill="#5b6a80"/>
-    <path d="M18 82 L82 12" stroke="#ff4d5e" stroke-width="11" stroke-linecap="round" opacity=".25"/>
-    <path d="M18 82 L82 12" stroke="#ff4d5e" stroke-width="6.5" stroke-linecap="round"/>
   </svg>`;
 }
 
@@ -172,7 +148,6 @@ function countBadge(text: string): string {
 
 const ICONS: Array<{ id: string; art: string; accent?: string }> = [
   { id: PRODUCT_HINTS, art: bulbIcon() + countBadge('×10'), accent: '#ffd23f' },
-  { id: PRODUCT_NO_ADS, art: noAdsIcon(), accent: '#ff4d5e' },
   { id: PRODUCT_WEEK_PASS, art: weekPassIcon() },
   { id: PRODUCT_SKIN_CHROME, art: chromeCaseIcon(), accent: '#9fc4dd' },
 ];
