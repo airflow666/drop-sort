@@ -7,8 +7,12 @@
  * Главное решение по рекламе (план, §8): фулскрин показывается на ПЕРЕХОДЕ к
  * следующему уровню, после того как игрок увидел награду и сам нажал «дальше».
  * Не перед экраном победы: перебивать роликом момент награды — это отдавать
- * удержание за один показ. И не два ролика подряд — если игрок только что
- * смотрел rewarded, фулскрин на этом переходе пропускается.
+ * удержание за один показ.
+ *
+ * Здесь только МЕСТО вызова. Как часто реклама допустима — интервал, счётчик
+ * переходов, отсрочка после ролика за награду — решает src/platform/ads.ts.
+ * Раньше часть этой политики жила и здесь тоже, и два места принимали
+ * несогласованные решения.
  */
 
 import { Application, Container } from 'pixi.js';
@@ -17,6 +21,12 @@ import type { LevelSpec } from './core';
 import { blitzLevel, campaignLevel, dailyLevel } from './levels/provider';
 import { BLIND_BOX_COST, isCompetitive, Profile, type GameMode } from './meta/profile';
 import { Ads } from './platform/ads';
+import {
+  isConsumable,
+  PRODUCT_HINTS,
+  PRODUCT_NO_ADS,
+  PRODUCT_WEEK_PASS,
+} from './platform/ids';
 import { Audio, Haptics } from './platform/audio';
 import type { Platform } from './platform/sdk';
 import { Background } from './render/background';
@@ -62,19 +72,6 @@ import {
 /** Через сколько бездействия подсветить кнопку подсказки (план, §8). */
 const IDLE_HINT_MS = 20_000;
 
-/**
- * Расходуемые товары — те, которые можно купить повторно.
- *
- * «Убрать рекламу» и скины сюда не входят: факт владения ими хранит сама
- * платформа тем, что покупка остаётся непотреблённой (см.
- * redeemPendingPurchases).
- */
-const CONSUMABLE_PRODUCTS = new Set(['hints_10', 'week_pass']);
-
-function isConsumable(productId: string): boolean {
-  return CONSUMABLE_PRODUCTS.has(productId);
-}
-
 interface Session {
   mode: GameMode;
   spec: LevelSpec;
@@ -97,8 +94,6 @@ interface Session {
   score: number;
   setsClosed: number;
   step: number;
-  /** Только что смотрели rewarded — фулскрин на переходе пропускаем. */
-  sawRewarded: boolean;
 }
 
 export class App {
@@ -575,16 +570,16 @@ export class App {
 
   private applyPurchase(productId: string): void {
     switch (productId) {
-      case 'hints_10':
+      case PRODUCT_HINTS:
         this.profile.addHints(10);
         this.toast(t('toast.hintsAdded'));
         break;
-      case 'no_ads':
+      case PRODUCT_NO_ADS:
         this.profile.enableNoAds();
         void this.platform.hideBanner();
         this.toast(t('toast.adsDisabled'));
         break;
-      case 'week_pass':
+      case PRODUCT_WEEK_PASS:
         // Пропуск начисляет награду сразу и далее по календарю входов —
         // серверной части нет, поэтому механика опирается на стрик.
         this.profile.addCoins(300);
@@ -795,7 +790,6 @@ export class App {
       score: 0,
       setsClosed: 0,
       step: 0,
-      sawRewarded: false,
     };
 
     this.stage.addChildAt(view, 1);
@@ -924,7 +918,6 @@ export class App {
       this.toast(t('toast.adNotCounted'));
       return;
     }
-    session.sawRewarded = true;
     await session.view.undo();
     this.persistResume();
     this.updateHud();
@@ -942,7 +935,6 @@ export class App {
       this.toast(t('toast.adNotCounted'));
       return;
     }
-    session.sawRewarded = true;
     await session.view.grantExtraShelf();
     this.layoutBoard();
     this.persistResume();
@@ -968,7 +960,6 @@ export class App {
     if (choice === 'extraShelf') {
       const rewarded = await this.ads.rewarded('extraShelf');
       if (rewarded) {
-        session.sawRewarded = true;
         await session.view.grantExtraShelf();
         this.layoutBoard();
         this.platform.gameplayStart();
@@ -1051,7 +1042,6 @@ export class App {
           this.profile.addCoins(coins);
           awarded = coins * 2;
           session.doubledCoins = true;
-          session.sawRewarded = true;
           this.audio.coin();
         } else {
           this.toast(t('toast.adNotCounted'));
@@ -1071,10 +1061,14 @@ export class App {
       }
 
       // «Следующая витрина» — вот здесь и только здесь фулскрин.
+      //
+      // Зовём всегда (кроме купленного «без рекламы»), а показывать или нет,
+      // решает src/platform/ads.ts: там интервал и счётчик переходов. Раньше
+      // часть решения жила здесь — пропуск после rewarded, — и из-за этого
+      // счётчик переходов в рекламном слое сбивался.
       const next = session.levelNumber + 1;
-      const skipAd = session.sawRewarded || this.profile.noAds;
       this.teardownSession();
-      if (!skipAd) await this.ads.interstitial();
+      if (!this.profile.noAds) await this.ads.interstitial();
       this.startCampaignLevel(next);
       return;
     }
@@ -1258,6 +1252,8 @@ export class App {
    */
   private exposeDebugApi(): void {
     (window as unknown as { __drop?: unknown }).__drop = {
+      /** Разрешить фулскрин на ближайшем переходе, не выжидая интервал. */
+      allowInterstitial: (): void => this.ads.debugAllowInterstitial(),
       /** Досортировать текущий уровень по подсказкам солвера. */
       autoSolve: async (limit = 120): Promise<boolean> => {
         for (let i = 0; i < limit; i++) {

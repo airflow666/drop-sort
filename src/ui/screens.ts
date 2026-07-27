@@ -31,6 +31,12 @@ import { brand, formatNumber, pluralize, t, type Key } from '../i18n';
 import type { Profile } from '../meta/profile';
 import { BLIND_BOX_COST, DUPLICATES_PER_BOX } from '../meta/profile';
 import type { CatalogItem, LeaderboardEntry } from '../platform/sdk';
+import {
+  PRODUCT_HINTS,
+  PRODUCT_NO_ADS,
+  PRODUCT_SKIN_CHROME,
+  PRODUCT_WEEK_PASS,
+} from '../platform/ids';
 import { add, button, el, formatClock, iconButton } from './dom';
 
 export interface Screen {
@@ -38,9 +44,9 @@ export interface Screen {
   destroy(): void;
 }
 
-/** Технические имена лидербордов. Должны совпадать с созданными в консоли. */
-export const LEADERBOARD_BLITZ = 'blitz_weekly';
-export const LEADERBOARD_DAILY = 'daily_moves';
+// Идентификаторы для консоли живут в src/platform/ids.ts — там их проверяет
+// тест на маску. Реэкспорт, чтобы не править импорты по всему проекту.
+export { LEADERBOARD_BLITZ, LEADERBOARD_DAILY } from '../platform/ids';
 
 function screen(className = ''): HTMLElement {
   return el('div', `screen ${className}`.trim());
@@ -443,11 +449,11 @@ export interface ShopProduct {
 }
 
 export const SHOP_PRODUCTS: readonly ShopProduct[] = [
-  { id: 'hints_10', titleKey: 'product.hints10.title', noteKey: 'product.hints10.note' },
-  { id: 'no_ads', titleKey: 'product.noAds.title', noteKey: 'product.noAds.note' },
-  { id: 'week_pass', titleKey: 'product.weekPass.title', noteKey: 'product.weekPass.note' },
+  { id: PRODUCT_HINTS, titleKey: 'product.hints10.title', noteKey: 'product.hints10.note' },
+  { id: PRODUCT_NO_ADS, titleKey: 'product.noAds.title', noteKey: 'product.noAds.note' },
+  { id: PRODUCT_WEEK_PASS, titleKey: 'product.weekPass.title', noteKey: 'product.weekPass.note' },
   {
-    id: 'skin_chrome',
+    id: PRODUCT_SKIN_CHROME,
     titleKey: 'product.skinChrome.title',
     noteKey: 'product.skinChrome.note',
   },
@@ -525,7 +531,7 @@ export function createShop(
   for (const product of SHOP_PRODUCTS) {
     const listed = catalog.find((c) => c.id === product.id);
     const owned =
-      (product.id === 'no_ads' && profile.noAds) ||
+      (product.id === PRODUCT_NO_ADS && profile.noAds) ||
       (product.id.startsWith('skin_') && profile.ownsSkin(product.id));
 
     const card = el('div', 'mode');

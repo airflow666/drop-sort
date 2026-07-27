@@ -21,6 +21,7 @@
 
 import type { SeasonTheme } from './seasons';
 import { t, type Key } from '../i18n';
+import { PRODUCT_SKIN_CHROME } from '../platform/ids';
 
 /** Конструкция витрины. Реализация — в src/render/shelf.ts. */
 export type ShelfStyle = 'season' | 'brass' | 'arcade' | 'wood' | 'chrome' | 'crystal';
@@ -119,7 +120,7 @@ export const SKINS: readonly Skin[] = [
     id: 'skin_chrome',
     labelKey: 'chrome',
     coins: null,
-    productId: 'skin_chrome',
+    productId: PRODUCT_SKIN_CHROME,
     override: {
       frame: '#7d90a6',
       glass: '#dceaf5',
@@ -133,6 +134,18 @@ export const SKINS: readonly Skin[] = [
 
 export function skinById(id: string): Skin {
   return SKINS.find((s) => s.id === id) ?? SKINS[0];
+}
+
+/**
+ * Скин по идентификатору товара в консоли.
+ *
+ * Внутренний id скина и id товара — разные вещи: первый попадает в сохранение
+ * игрока, второй обязан подчиняться маске консоли. Раньше принадлежность
+ * товара к скинам определялась по префиксу `skin_` в его id, и переименование
+ * товаров под маску такую проверку молча сломало бы.
+ */
+export function skinByProductId(productId: string): Skin | undefined {
+  return SKINS.find((s) => s.productId === productId);
 }
 
 export function skinName(skin: Skin): string {

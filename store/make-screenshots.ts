@@ -158,9 +158,28 @@ const SHOTS: Shot[] = [
 const browser = await chromium.launch({ executablePath: CHROME });
 mkdirSync(OUT, { recursive: true });
 
+/**
+ * Локали, для которых снимаются экраны.
+ *
+ * Обе витрины консоли — русская и англоязычная — требуют своих скриншотов, и
+ * делать их двумя ручными прогонами с подменой переменной окружения значит
+ * рано или поздно залить в одну витрину снимки на чужом языке. Поэтому оба
+ * набора снимаются за один запуск, а язык попадает в имя файла.
+ *
+ * SHOT_LOCALE остаётся для отладки: с ним снимается только одна локаль.
+ */
+const LOCALES = process.env.SHOT_LOCALE
+  ? [{ tag: process.env.SHOT_LOCALE.split(/[-_]/)[0], locale: process.env.SHOT_LOCALE }]
+  : [
+      { tag: 'ru', locale: 'ru-RU' },
+      { tag: 'en', locale: 'en-US' },
+    ];
+
 const problems: string[] = [];
 let written = 0;
+const planned = SHOTS.length * FORMATS.length * LOCALES.length;
 
+for (const { tag, locale } of LOCALES)
 for (const format of FORMATS) {
   const w = format.width * format.scale;
   const h = format.height * format.scale;
@@ -175,15 +194,14 @@ for (const format of FORMATS) {
     continue;
   }
 
-  // Локаль задаётся явно: снимки идут в русскую витрину консоли, а без SDK
-  // язык берётся из браузера, у которого по умолчанию en-US. Для англоязычной
-  // витрины тот же скрипт запускается с SHOT_LOCALE=en-US.
+  // Локаль задаётся явно: без SDK язык берётся из браузера, а у него по
+  // умолчанию en-US, и русские снимки вышли бы английскими.
   const context = await browser.newContext({
     viewport: { width: format.width, height: format.height },
     deviceScaleFactor: format.scale,
     isMobile: format.name === 'portrait',
     hasTouch: format.name === 'portrait',
-    locale: process.env.SHOT_LOCALE ?? 'ru-RU',
+    locale,
   });
   const page = await context.newPage();
   // Без явного предела упавший шаг ждёт полминуты на стандартном таймауте.
@@ -193,12 +211,14 @@ for (const format of FORMATS) {
     try {
       await freshMenu(page);
       await shot.prepare(page);
-      const file = `${OUT}/${shot.slug}-${format.name}.png`;
+      const file = `${OUT}/${shot.slug}-${format.name}-${tag}.png`;
       writeFileSync(file, await page.screenshot());
       written++;
       console.log(`${file} ${w}×${h}`);
     } catch (e) {
-      problems.push(`${shot.slug}/${format.name}: ${e instanceof Error ? e.message : String(e)}`);
+      problems.push(
+        `${shot.slug}/${format.name}/${tag}: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   }
   await context.close();
@@ -206,7 +226,7 @@ for (const format of FORMATS) {
 
 await browser.close();
 
-console.log(`\nЗаписано снимков: ${written} из ${SHOTS.length * FORMATS.length}`);
+console.log(`\nЗаписано снимков: ${written} из ${planned}`);
 if (problems.length > 0) {
   console.log('\nПроблемы:');
   problems.forEach((p) => console.log(`  ${p}`));

@@ -230,20 +230,39 @@ const adsBeforeNext = await page.evaluate(
 );
 check('до перехода фулскрин не показывался', adsBeforeNext === 0);
 
+// Первый переход обязан быть БЕЗ рекламы. Уровень проходится за считанные
+// секунды, и раньше на каждом таком переходе игрок получал трёхсекундный
+// отсчёт, после которого площадка ролик всё равно отклоняла по своему лимиту.
 await page.locator('.btn--primary').click(); // следующая витрина
-// Плашка обратного отсчёта: 3 секунды до ролика.
+const earlyCountdown = await page
+  .waitForSelector('.ad-countdown', { timeout: 2500 })
+  .then(() => true)
+  .catch(() => false);
+check('на первом переходе отсчёта нет — интервал не вышел', !earlyCountdown);
+
+await page.waitForSelector('.hud__actions', { timeout: 12000 });
+const afterFirst = await page.evaluate(() => window.__drop.state());
+check('реклама не показана', afterFirst.adStats.interstitialsShown === 0);
+check('запустился следующий уровень', afterFirst.level === 2, `уровень: ${afterFirst.level}`);
+check('прогресс сохранён: звёзды есть', afterFirst.stars >= 1, `звёзд: ${afterFirst.stars}`);
+
+// А когда интервал вышел — реклама показывается, с отсчётом.
+phase('фулскрин после интервала');
+await page.evaluate(() => window.__drop.allowInterstitial());
+await withTimeout(page.evaluate(() => window.__drop.autoSolve()), 90000, 'второй уровень');
+await page.waitForSelector('.overlay.is-open .card', { timeout: 8000 });
+await page.locator('.btn--primary').click();
+
 const countdownSeen = await page
   .waitForSelector('.ad-countdown', { timeout: 4000 })
   .then(() => true)
   .catch(() => false);
-check('перед фулскрином показана плашка отсчёта', countdownSeen);
-await page.screenshot({ path: `${OUT}/smoke-06-ad-countdown.png` });
+check('после интервала показана плашка отсчёта', countdownSeen);
+if (countdownSeen) await page.screenshot({ path: `${OUT}/smoke-06-ad-countdown.png` });
 
-await page.waitForSelector('.hud__actions', { timeout: 12000 });
+await page.waitForSelector('.hud__actions', { timeout: 14000 });
 const afterAd = await page.evaluate(() => window.__drop.state());
 check('фулскрин показан ровно один раз', afterAd.adStats.interstitialsShown === 1);
-check('запустился следующий уровень', afterAd.level === 2, `уровень: ${afterAd.level}`);
-check('прогресс сохранён: звёзды есть', afterAd.stars >= 1, `звёзд: ${afterAd.stars}`);
 
 // --- Блиц -----------------------------------------------------------------
 phase('блиц');

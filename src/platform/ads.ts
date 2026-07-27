@@ -13,9 +13,22 @@
  *  * считает показы для метрик из плана (§10): rewarded на сессию и доля
  *    сессий хотя бы с одним rewarded.
  *
- * Частоту фулскринов регулирует платформа. Мы зовём их на каждом переходе
- * между уровнями и читаем фактический результат из onClose — лишнее
- * платформа отфильтрует сама, а угадывать её лимиты за неё вредно.
+ * ── Про частоту фулскринов ────────────────────────────────────────────────
+ * Площадка действительно ограничивает интервал между фулскринами (по
+ * умолчанию 60 секунд, настраивается в консоли) и просто не покажет ролик,
+ * если позвать раньше: `onClose` придёт с `wasShown = false`. То есть лишние
+ * вызовы дохода не приносят и не отнимают.
+ *
+ * Но полагаться на это одно оказалось нельзя. Уровень в бесконечной ленте
+ * проходится секунд за пятнадцать, и на КАЖДОМ переходе игрок видел плашку
+ * «Реклама через 3, 2, 1», три секунды ждал — а ролика не было, потому что
+ * площадка его отклоняла. Три потерянные секунды и обманутое ожидание на
+ * каждом уровне, причём без единого показа. В локальной сборке, где заглушка
+ * ничего не ограничивает, было хуже: реклама шла буквально каждый уровень.
+ *
+ * Поэтому интервал держим и на своей стороне: с запасом к лимиту площадки и
+ * дополнительно не чаще, чем раз в несколько уровней. Если показывать рано,
+ * отсчёт вообще не запускается — переход к следующему уровню мгновенный.
  */
 
 import type { Platform } from './sdk';
@@ -40,11 +53,33 @@ export interface AdStats {
 
 const COUNTDOWN_MS = 1000;
 
+/**
+ * Свой интервал между фулскринами. Заметно больше лимита площадки (60 секунд
+ * по умолчанию): вызов ровно на границе почти всегда упирался бы в её счётчик,
+ * и игрок получал бы отсчёт впустую. Запас снимает эту гонку.
+ */
+const INTERSTITIAL_COOLDOWN_MS = 100_000;
+
+/**
+ * И не чаще, чем раз в столько переходов между уровнями. Одного таймера мало:
+ * на длинном уровне минуты набегают сами, и реклама снова оказалась бы на
+ * каждом переходе.
+ */
+const INTERSTITIAL_MIN_TRANSITIONS = 3;
+
 export class Ads {
   private readonly platform: Platform;
   private readonly audio: Audio;
   private overlay: HTMLDivElement | null = null;
   private busy = false;
+
+  /**
+   * Когда последний раз показывали полноэкранную рекламу. Отсчёт стартует с
+   * запуска игры, поэтому первые полторы минуты сессии проходят без фулскрина:
+   * знакомство с игрой не должно начинаться с рекламы.
+   */
+  private lastInterstitialAt = Date.now();
+  private transitionsSinceInterstitial = 0;
 
   readonly stats: AdStats = {
     interstitialsShown: 0,
@@ -71,18 +106,54 @@ export class Ads {
    */
   async interstitial(): Promise<boolean> {
     if (this.busy) return false;
+
+    this.transitionsSinceInterstitial += 1;
+    if (!this.interstitialAllowed()) {
+      // Молча и мгновенно: ни отсчёта, ни паузы. Игрок просто переходит
+      // на следующий уровень.
+      return false;
+    }
+
     this.busy = true;
     try {
       await this.showCountdown(t('ads.countdown'));
       this.beforeAd();
       const { wasShown } = await this.platform.showInterstitial();
       if (wasShown) this.stats.interstitialsShown += 1;
+      // Отсчёт сбрасывается независимо от того, показала площадка ролик или
+      // отклонила: попытка уже стоила игроку трёх секунд ожидания, и повторять
+      // её на следующем же переходе — худшее, что можно сделать.
+      this.noteAdShown();
       return wasShown;
     } finally {
       this.hideOverlay();
       this.afterAd();
       this.busy = false;
     }
+  }
+
+  private interstitialAllowed(): boolean {
+    if (this.transitionsSinceInterstitial < INTERSTITIAL_MIN_TRANSITIONS) return false;
+    return Date.now() - this.lastInterstitialAt >= INTERSTITIAL_COOLDOWN_MS;
+  }
+
+  private noteAdShown(): void {
+    this.lastInterstitialAt = Date.now();
+    this.transitionsSinceInterstitial = 0;
+  }
+
+  /** Сколько секунд осталось до следующего допустимого фулскрина — для отладки. */
+  get interstitialCooldownLeft(): number {
+    return Math.max(0, INTERSTITIAL_COOLDOWN_MS - (Date.now() - this.lastInterstitialAt)) / 1000;
+  }
+
+  /**
+   * Разрешить фулскрин прямо сейчас. Только для смоук-теста: без этого проверить
+   * показ рекламы можно было бы, лишь прождав интервал в реальном времени.
+   */
+  debugAllowInterstitial(): void {
+    this.lastInterstitialAt = 0;
+    this.transitionsSinceInterstitial = INTERSTITIAL_MIN_TRANSITIONS;
   }
 
   /**
@@ -103,6 +174,10 @@ export class Ads {
         this.stats.rewardedByPlacement[placement] =
           (this.stats.rewardedByPlacement[placement] ?? 0) + 1;
       }
+      // Ролик за награду тоже отодвигает фулскрин. Площадка их не смешивает —
+      // это ограничение ради игрока: два ролика подряд ощущаются как один
+      // сплошной рекламный блок, даже если первый он включил сам.
+      this.noteAdShown();
       return rewarded;
     } finally {
       this.afterAd();

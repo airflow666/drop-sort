@@ -19,6 +19,13 @@ import { findHint } from '../src/core/hint';
 import { rateLevel, blitzSetPoints } from '../src/core/scoring';
 import type { LevelSpec, Shelf } from '../src/core/types';
 import {
+  CONSUMABLE_PRODUCTS,
+  isConsumable,
+  LEADERBOARDS,
+  PLATFORM_ID_MASK,
+  PRODUCT_IDS,
+} from '../src/platform/ids';
+import {
   easeBack,
   easeBounce,
   easeElastic,
@@ -458,6 +465,48 @@ group('Твины', () => {
       assert.ok(Math.abs(ease(0)) < 1e-6, `${name}(0) должен быть 0, а не ${ease(0)}`);
       assert.ok(Math.abs(ease(1) - 1) < 1e-6, `${name}(1) должен быть 1, а не ${ease(1)}`);
     }
+  });
+});
+
+group('Идентификаторы для консоли площадки', () => {
+  // Консоль принимает технические имена лидербордов только по маске
+  // [a-zA-Z0-9]. Имена с подчёркиванием в неё просто не вводятся, и
+  // выясняется это на последнем шаге перед публикацией — когда лидерборды
+  // заводят руками. Тест ловит это при сборке.
+  test('имена лидербордов проходят маску консоли', () => {
+    for (const name of LEADERBOARDS) {
+      assert.ok(
+        PLATFORM_ID_MASK.test(name),
+        `«${name}» не проходит ${PLATFORM_ID_MASK}: консоль такое имя не примет`
+      );
+    }
+  });
+
+  test('имена лидербордов различны', () => {
+    assert.equal(new Set(LEADERBOARDS).size, LEADERBOARDS.length);
+  });
+
+  test('идентификаторы товаров различны и непусты', () => {
+    assert.equal(new Set(PRODUCT_IDS).size, PRODUCT_IDS.length);
+    for (const id of PRODUCT_IDS) assert.ok(id.length > 0, 'пустой идентификатор товара');
+  });
+
+  test('расходуемые товары перечислены среди существующих', () => {
+    for (const id of CONSUMABLE_PRODUCTS) {
+      assert.ok(
+        (PRODUCT_IDS as readonly string[]).includes(id),
+        `«${id}» помечен расходуемым, но такого товара нет`
+      );
+    }
+  });
+
+  test('нерасходуемые товары не считаются расходуемыми', () => {
+    // «Убрать рекламу» и скины подтверждать нельзя: платформа хранит факт
+    // владения именно непотреблённой покупкой. Потребить их значит забыть
+    // о покупке при следующем запуске.
+    assert.equal(isConsumable('no_ads'), false);
+    assert.equal(isConsumable('skin_chrome'), false);
+    assert.equal(isConsumable('hints_10'), true);
   });
 });
 

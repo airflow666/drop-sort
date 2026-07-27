@@ -4,11 +4,24 @@
  * Пак собран офлайн (tools/generate_levels.py) и вшит в бандл: в рантайме
  * нулевые вычисления и ни одного сетевого запроса за уровнем.
  *
- * Кампания при этом бесконечная (план, §4), а уровней в паке 520. Дальше они
- * переиспользуются, но не повторяются буквально: каждому номеру уровня
- * соответствует своя перестановка видов и порядка витрин. Поле выглядит новым,
- * а minMoves остаётся точным — перестановка не меняет ни одного свойства
- * задачи, потому что виды взаимозаменяемы, а витрины равноправны.
+ * ── Виды раздаются по всей серии, а не по порядку ─────────────────────────
+ * В паке виды пронумерованы 0..n-1, поэтому уровень на три вида всегда
+ * состоял из видов 0, 1 и 2. За всю кампанию игрок видел первые три фигурки
+ * серии постоянно, а восьмую — только в одиннадцати уровнях из пятисот
+ * двадцати (столько в паке уровней на восемь видов). Здесь номера видов
+ * переназначаются на случайное подмножество всей серии: три вида уровня могут
+ * оказаться хоть первым, четвёртым и восьмым.
+ *
+ * ── Сложность бесконечной ленты меняется от уровня к уровню ───────────────
+ * Раньше уровень n брался из пака строго по порядку, а пак отсортирован по
+ * кривой сложности — то есть двадцать уровней подряд шли на трёх видах и пяти
+ * витринах. Теперь номер уровня задаёт СЕРЕДИНУ коридора сложности, а
+ * конкретное число видов гуляет вокруг неё: соседние уровни ощутимо разные,
+ * но общий подъём сохраняется.
+ *
+ * Обе перестройки не трогают саму задачу: переименование видов и перестановка
+ * витрин — симметрии, они не меняют ни решаемость, ни минимальное число ходов,
+ * поэтому minMoves из пака остаётся точным.
  */
 
 import type { LevelSpec } from '../core';
@@ -43,9 +56,15 @@ export const CAPACITY = DATA.capacity;
 export const CAMPAIGN_LENGTH = DATA.packs.campaign.length;
 
 /**
- * Детерминированный генератор — mulberry32. Нужен, чтобы перестановка уровня
- * зависела только от его номера: игрок, вернувшийся на уровень 640, увидит
- * ровно то же поле, а не новое.
+ * Сколько разных видов доступно на поле — по числу обычных фигурок в серии
+ * (см. `Season.playable`). Виды уровня раскладываются по этому диапазону.
+ */
+export const SPECIES_SLOTS = 8;
+
+/**
+ * Детерминированный генератор — mulberry32. Нужен, чтобы всё, что зависит от
+ * номера уровня, зависело ТОЛЬКО от него: игрок, вернувшийся на уровень 640,
+ * увидит ровно то же поле, а не новое.
  */
 function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -72,45 +91,128 @@ function decode(raw: RawLevel): number[][] {
 }
 
 /**
- * Применить перестановку видов и порядка витрин.
+ * Переназначить виды уровня на случайное подмножество серии и перемешать
+ * порядок витрин.
  *
- * Обе операции — симметрии задачи: переименование видов и перестановка витрин
- * не меняют ни решаемость, ни минимальное число ходов. Поэтому уровень можно
- * переиспользовать без повторной прогонки солвера.
+ * Ключевая деталь — подмножество берётся из ВСЕХ доступных видов, а не из тех,
+ * что уже есть на уровне. Прежняя версия перемешивала виды между собой, то есть
+ * из {0,1,2} получала снова {0,1,2}, и фигурки с большими номерами не выходили
+ * на поле почти никогда.
  */
-function permute(shelves: number[][], seed: number): number[][] {
+function reskin(shelves: number[][], seed: number): number[][] {
   const random = rng(seed);
-  const species = [...new Set(shelves.flat())].sort((a, b) => a - b);
-  const shuffled = shuffle(species, random);
+  const present = [...new Set(shelves.flat())].sort((a, b) => a - b);
+
+  const pool = shuffle(
+    Array.from({ length: SPECIES_SLOTS }, (_, i) => i),
+    random
+  ).slice(0, present.length);
+
   const map = new Map<number, number>();
-  species.forEach((s, i) => map.set(s, shuffled[i]));
+  present.forEach((species, i) => map.set(species, pool[i] ?? species));
+
   const relabelled = shelves.map((shelf) => shelf.map((x) => map.get(x) ?? x));
   return shuffle(relabelled, random);
 }
 
-function toSpec(raw: RawLevel, id: string, seed: number, permuted: boolean): LevelSpec {
-  const shelves = permuted ? permute(decode(raw), seed) : decode(raw);
+function toSpec(raw: RawLevel, id: string, seed: number): LevelSpec {
   return {
     id,
     seed,
-    shelves,
+    shelves: reskin(decode(raw), seed),
     capacity: CAPACITY,
     speciesCount: raw.n,
     minMoves: raw.m,
   };
 }
 
-/** Уровень кампании по номеру, начиная с 1. Номера сверх пака — с перестановкой. */
-export function campaignLevel(levelNumber: number): LevelSpec {
-  const n = Math.max(1, Math.floor(levelNumber));
-  const index = (n - 1) % CAMPAIGN_LENGTH;
-  const lap = Math.floor((n - 1) / CAMPAIGN_LENGTH);
-  const raw = DATA.packs.campaign[index];
-  // На первом проходе уровни идут как сгенерированы — кривая сложности из
-  // плана (§6) выстроена именно в этом порядке.
-  return toSpec(raw, `c-${n}`, n * 7919 + lap, lap > 0);
+// --- Кривая сложности кампании ---------------------------------------------
+
+/** Уровни пака, разложенные по числу видов. Строится один раз. */
+const BY_SPECIES = (() => {
+  const buckets = new Map<number, RawLevel[]>();
+  for (const level of DATA.packs.campaign) {
+    const bucket = buckets.get(level.n);
+    if (bucket) bucket.push(level);
+    else buckets.set(level.n, [level]);
+  }
+  return buckets;
+})();
+
+const MIN_SPECIES = 3;
+const MAX_SPECIES = Math.max(...BY_SPECIES.keys());
+
+/** Каждый N-й уровень — разгрузочный: на вид проще соседей (план, §6). */
+const RELIEF_EVERY = 11;
+
+/**
+ * Середина коридора сложности для уровня n.
+ *
+ * Ступени сжаты по сравнению с исходной кривой плана (§6), где первые двадцать
+ * уровней шли на трёх видах: подряд идущие одинаковые поля читаются как «игра
+ * не двигается». Первые четыре уровня всё так же тривиальны — по ним считается
+ * метрика прохождения первого уровня (план, §10), — а дальше подъём заметен.
+ */
+function medianSpecies(n: number): number {
+  if (n <= 4) return 3;
+  if (n <= 14) return 4;
+  if (n <= 30) return 5;
+  if (n <= 70) return 6;
+  return 7;
 }
 
+/**
+ * Сколько видов будет на уровне n.
+ *
+ * Вокруг середины коридора добавляется разброс ±1, поэтому соседние уровни
+ * отличаются на глаз. Восемь видов остаются редкостью: в паке таких уровней
+ * всего одиннадцать, и без ограничения они бы заметно повторялись.
+ */
+function speciesFor(n: number): number {
+  // Первые два уровня — знакомство с правилом, разброс к ним не применяется:
+  // по прохождению первого уровня считается метрика плана (§10), и оставлять
+  // её на волю генератора незачем.
+  if (n <= 2) return MIN_SPECIES;
+
+  const random = rng(n * 2654435761);
+  let species = medianSpecies(n);
+
+  const roll = random();
+  if (roll < 0.3) species -= 1;
+  else if (roll > 0.72) species += 1;
+
+  // Разгрузочный уровень: заведомо проще соседей.
+  if (n > RELIEF_EVERY && n % RELIEF_EVERY === 0) species -= 1;
+
+  if (species > MAX_SPECIES - 1 && random() > 0.35) species = MAX_SPECIES - 1;
+
+  return Math.min(MAX_SPECIES, Math.max(MIN_SPECIES, species));
+}
+
+/** Ближайший непустой набор уровней — на случай, если корзины окажутся редкими. */
+function bucketFor(species: number): RawLevel[] {
+  for (let delta = 0; delta <= MAX_SPECIES; delta++) {
+    const lower = BY_SPECIES.get(species - delta);
+    if (lower?.length) return lower;
+    const upper = BY_SPECIES.get(species + delta);
+    if (upper?.length) return upper;
+  }
+  return DATA.packs.campaign;
+}
+
+/**
+ * Уровень кампании по номеру, начиная с 1.
+ *
+ * Лента бесконечна: номера сверх размера пака переиспользуют те же поля, но с
+ * другими видами и порядком витрин.
+ */
+export function campaignLevel(levelNumber: number): LevelSpec {
+  const n = Math.max(1, Math.floor(levelNumber));
+  const bucket = bucketFor(speciesFor(n));
+  const random = rng(n * 7919 + 13);
+  const raw = bucket[Math.floor(random() * bucket.length)];
+  return toSpec(raw, `c-${n}`, n * 7919);
+}
 
 /** Номер дня с эпохи — общий для всех игроков в один и тот же календарный день. */
 export function dayIndex(now = Date.now()): number {
@@ -120,14 +222,13 @@ export function dayIndex(now = Date.now()): number {
 /**
  * Ежедневный вызов: один и тот же уровень для всех игроков в сутки (план, §4).
  * Индекс считается от дня по UTC, поэтому уровень меняется одновременно у всех,
- * независимо от часового пояса.
+ * независимо от часового пояса, а виды раздаются от того же номера дня — значит
+ * и выглядит он у всех одинаково.
  */
 export function dailyLevel(now = Date.now()): LevelSpec {
   const pack = DATA.packs.daily;
   const day = dayIndex(now);
-  const raw = pack[day % pack.length];
-  const lap = Math.floor(day / pack.length);
-  return toSpec(raw, `d-${day}`, day, lap > 0);
+  return toSpec(pack[day % pack.length], `d-${day}`, day * 104729 + 7);
 }
 
 /** Поток коротких уровней для блица. */
@@ -135,6 +236,5 @@ export function blitzLevel(step: number): LevelSpec {
   const pack = DATA.packs.blitz;
   // Порядок зависит от запуска: два забега подряд не должны идти одинаково.
   const index = Math.floor(Math.random() * pack.length);
-  return toSpec(pack[index], `b-${step}`, Date.now() + step, true);
+  return toSpec(pack[index], `b-${step}`, Date.now() + step);
 }
-
