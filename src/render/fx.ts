@@ -11,7 +11,7 @@
  * подёргивания сборщика мусора на слабом Android.
  */
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
 import { toNumber } from '../theme/color';
 
 interface Particle {
@@ -134,6 +134,146 @@ export class Particles extends Container {
   clear(): void {
     for (const p of this.active) this.give(p.gfx);
     this.active.length = 0;
+  }
+}
+
+/**
+ * Расходящиеся кольца удара.
+ *
+ * Частицы отвечают на вопрос «что произошло» (цвет вида, направление вверх),
+ * кольцо — на вопрос «где именно». Без него момент касания фигурки о дно
+ * витрины теряется среди конфетти: глаз ловит движение вверх и не видит точку
+ * контакта, из-за чего укладка читается как «фигурка просто исчезла и
+ * появилась ниже».
+ */
+export class Rings extends Container {
+  private readonly items: Array<{
+    gfx: Graphics;
+    life: number;
+    maxLife: number;
+    from: number;
+    to: number;
+    color: number;
+    thickness: number;
+  }> = [];
+
+  constructor() {
+    super();
+    this.eventMode = 'none';
+  }
+
+  fire(x: number, y: number, color: string, radius: number, duration = 380): void {
+    const gfx = new Graphics();
+    gfx.eventMode = 'none';
+    gfx.position.set(x, y);
+    this.addChild(gfx);
+    this.items.push({
+      gfx,
+      life: 0,
+      maxLife: duration,
+      from: radius * 0.25,
+      to: radius,
+      color: toNumber(color),
+      thickness: Math.max(1.5, radius * 0.09),
+    });
+  }
+
+  update(dt: number): void {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const ring = this.items[i];
+      ring.life += dt;
+      const t = ring.life / ring.maxLife;
+      if (t >= 1) {
+        ring.gfx.destroy();
+        this.items.splice(i, 1);
+        continue;
+      }
+      // Радиус растёт с торможением, толщина и прозрачность падают линейно:
+      // так кольцо читается как ударная волна, а не как растущий круг.
+      const eased = 1 - Math.pow(1 - t, 3);
+      const radius = ring.from + (ring.to - ring.from) * eased;
+      ring.gfx
+        .clear()
+        .circle(0, 0, radius)
+        .stroke({ width: ring.thickness * (1 - t), color: ring.color, alpha: 0.75 * (1 - t) });
+    }
+  }
+
+  clear(): void {
+    for (const ring of this.items) ring.gfx.destroy();
+    this.items.length = 0;
+  }
+}
+
+/**
+ * Всплывающие числа: «+2 сек» на закрытии сета в блице, «+40» к очкам.
+ *
+ * Награда, о которой игрок не узнал в момент выдачи, наградой не работает: в
+ * блице секунды и очки начисляются мгновенно, и без всплывающего числа
+ * прибавка растворяется в цифрах HUD, за которыми во время забега никто не
+ * следит.
+ */
+export class Popups extends Container {
+  private readonly items: Array<{ node: Text; life: number; maxLife: number; rise: number }> = [];
+
+  constructor() {
+    super();
+    this.eventMode = 'none';
+  }
+
+  fire(
+    x: number,
+    y: number,
+    text: string,
+    color: string,
+    opts: { size?: number; duration?: number; rise?: number } = {}
+  ): void {
+    const size = opts.size ?? 22;
+    const node = new Text({
+      text,
+      style: {
+        fontFamily: 'Arial, Helvetica, sans-serif',
+        fontSize: size,
+        fontWeight: '900',
+        fill: color,
+        stroke: { color: '#000000', width: Math.max(2, size * 0.16), alpha: 0.55 },
+        align: 'center',
+      },
+    });
+    node.eventMode = 'none';
+    node.anchor.set(0.5);
+    node.position.set(x, y);
+    this.addChild(node);
+    this.items.push({
+      node,
+      life: 0,
+      maxLife: opts.duration ?? 900,
+      rise: opts.rise ?? size * 2.4,
+    });
+  }
+
+  update(dt: number): void {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const item = this.items[i];
+      item.life += dt;
+      const t = item.life / item.maxLife;
+      if (t >= 1) {
+        item.node.destroy();
+        this.items.splice(i, 1);
+        continue;
+      }
+      // Выброс вверх с торможением плюс короткий «удар» масштабом в начале:
+      // число должно быть замечено периферийным зрением за один кадр.
+      item.node.y -= (item.rise / item.maxLife) * dt * (1 - t) * 2;
+      const pop = t < 0.16 ? 0.6 + (t / 0.16) * 0.55 : 1.15 - Math.min(1, (t - 0.16) / 0.2) * 0.15;
+      item.node.scale.set(pop);
+      item.node.alpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+    }
+  }
+
+  clear(): void {
+    for (const item of this.items) item.node.destroy();
+    this.items.length = 0;
   }
 }
 

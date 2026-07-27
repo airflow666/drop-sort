@@ -214,15 +214,18 @@ button {
   font-size: 13px;
 }
 
+/* Размер кнопки-иконки привязан к ширине экрана, но снизу ограничен 36
+   пикселями: меньше — уже промахи пальцем. */
 .icon-btn {
-  width: 44px;
-  height: 44px;
+  width: clamp(36px, 10.5vw, 44px);
+  height: clamp(36px, 10.5vw, 44px);
+  flex: none;
   display: grid;
   place-items: center;
   border-radius: 14px;
   background: var(--surface);
   border: 1px solid var(--stroke);
-  font-size: 18px;
+  font-size: clamp(15px, 4.4vw, 18px);
   line-height: 1;
   position: relative;
 }
@@ -263,46 +266,129 @@ button {
 
 /* ─── HUD ──────────────────────────────────────────────────────────────── */
 
+/* Верхняя строка HUD.
+ *
+ * Всё, что может ужиматься, ужимается через clamp() от ширины экрана, а не
+ * ступеньками в медиазапросах: между брейкпоинтами строка всё равно однажды
+ * не влезала, и на телефоне это выглядело как обрезанный интерфейс. Кнопки
+ * при этом не ужимаются ниже 36 пикселей — по ним нужно попадать пальцем.
+ */
 .hud {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: clamp(5px, 1.8vw, 10px);
   padding: calc(var(--safe-top) + 10px) calc(var(--safe-right) + 12px) 10px
     calc(var(--safe-left) + 12px);
+  min-width: 0;
 }
 
 .hud__spacer {
   flex: 1;
 }
 
+/* Группа показателей. Ужимается целиком и первой — кнопки по краям строки
+   должны остаться нажимаемыми при любой ширине. */
+.hud__stats {
+  display: flex;
+  align-items: stretch;
+  gap: clamp(4px, 1.5vw, 8px);
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
 .hud__stat {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 62px;
-  padding: 5px 10px;
+  justify-content: center;
+  min-width: 0;
+  flex: 0 1 auto;
+  padding: 4px clamp(6px, 2.2vw, 10px);
   border-radius: 14px;
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid var(--stroke);
+  position: relative;
 }
 
 .hud__stat b {
-  font-size: 17px;
+  font-size: clamp(13px, 4vw, 17px);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .hud__stat span {
-  font-size: 9.5px;
-  letter-spacing: 0.09em;
+  font-size: clamp(7.5px, 2.3vw, 9.5px);
+  letter-spacing: 0.08em;
   color: var(--ink-dim);
   text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Очки — главное число забега, поэтому чуть крупнее прочих показателей. */
+.hud__stat--score b {
+  color: var(--accent-alt);
+}
+
+/* Короткий «удар» плашки при начислении: движение ловится боковым зрением,
+   а на цифры во время забега никто не смотрит. */
+.hud__stat.is-bumped {
+  animation: stat-bump 0.34s ease-out;
+}
+
+@keyframes stat-bump {
+  40% {
+    transform: scale(1.12);
+  }
+}
+
+/* Прибавка, всплывающая над плашкой: «+40», «+2 с». */
+.hud__pop {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  transform: translate(-50%, 0);
+  font-size: clamp(11px, 3.2vw, 14px);
+  font-weight: 900;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  animation: hud-pop 1s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+
+.hud__pop--score {
+  color: var(--accent-alt);
+}
+
+.hud__pop--time {
+  color: var(--gold);
+}
+
+@keyframes hud-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.7);
+  }
+  22% {
+    opacity: 1;
+    transform: translate(-50%, -6px) scale(1.1);
+  }
+  60% {
+    opacity: 1;
+    transform: translate(-50%, -18px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -30px) scale(0.95);
+  }
 }
 
 .hud__actions {
   display: flex;
-  gap: 8px;
+  gap: clamp(6px, 2vw, 8px);
   padding: 0 calc(var(--safe-right) + 12px) calc(var(--safe-bottom) + 14px)
     calc(var(--safe-left) + 12px);
   justify-content: center;
@@ -334,17 +420,35 @@ button {
   box-shadow: 0 0 10px rgba(255, 210, 63, 0.5);
 }
 
+/* Во время партии монеты не тратятся, поэтому на узком экране пилюля уступает
+   место показателям, ради которых игрок в HUD и смотрит. В меню, магазине и
+   коллекции она остаётся всегда. */
+@media (max-width: 480px) {
+  .hud > .coins {
+    display: none;
+  }
+}
+
 /* Таймер блица. */
 .timer {
-  font-size: 30px;
+  font-size: clamp(21px, 6.6vw, 30px);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+  line-height: 1.05;
 }
 
 .timer--urgent {
   color: var(--danger);
   animation: pulse 0.55s ease-in-out infinite;
+}
+
+/* Последние секунды: плашка таймера подсвечивается красным ореолом. Одной
+   красной цифры мало — в неё нужно ещё попасть взглядом. */
+.hud__stat--timer:has(.timer--urgent) {
+  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
+  background: color-mix(in srgb, var(--danger) 18%, rgba(0, 0, 0, 0.28));
+  box-shadow: 0 0 18px -4px var(--danger);
 }
 
 @keyframes pulse {
@@ -1242,11 +1346,14 @@ button.fig:hover {
 
   .hud__stat {
     padding: 3px 8px;
-    min-width: 54px;
   }
 
   .hud__stat b {
     font-size: 14px;
+  }
+
+  .timer {
+    font-size: 22px;
   }
 
   .hud__actions {

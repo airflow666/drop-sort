@@ -63,7 +63,26 @@ export class ShelfView extends Container {
   private readonly theme: SeasonTheme;
   private readonly style: ShelfStyle;
 
-  private readonly frame = new Graphics();
+  /**
+   * Геометрия разнесена по трём слоям не ради порядка рисования, а ради
+   * стоимости кадра.
+   *
+   * Пульсация доступной витрины идёт каждый кадр, и раньше каждый кадр
+   * перестраивалась вся графика шкафа целиком: корпус, заклёпки, планки,
+   * неонки, цоколь — при том что меняются в ней ровно два числа, толщина и
+   * прозрачность обводки. При выбранной фигурке пульсируют сразу все витрины,
+   * куда её можно положить (обычно 3–6 из 12), и на слабом Android это
+   * тессселяция десятков контуров шестьдесят раз в секунду — ровно тот фриз,
+   * который площадка проверяет отдельным пунктом (§1.15).
+   *
+   *   glow    — пятно на «полу», меняется только с состоянием;
+   *   body    — корпус и весь декор скина: строится один раз на метрики;
+   *   outline — обводка состояния и полоса под цоколем: только это и
+   *             перестраивается в пульсации.
+   */
+  private readonly glow = new Graphics();
+  private readonly body = new Graphics();
+  private readonly outline = new Graphics();
   private readonly glass = new Graphics();
   private readonly highlight = new Graphics();
   /** Маска силуэта витрины: держит блик внутри рамы. Строится один раз. */
@@ -86,7 +105,7 @@ export class ShelfView extends Container {
     this.style = style;
 
     this.highlight.mask = this.clip;
-    this.addChild(this.frame, this.glass, this.highlight, this.clip);
+    this.addChild(this.glow, this.body, this.outline, this.glass, this.highlight, this.clip);
 
     this.eventMode = 'static';
     this.cursor = 'pointer';
@@ -120,14 +139,16 @@ export class ShelfView extends Container {
         x >= -padX && x <= padX && y >= -metrics.height - 10 && y <= 12,
     };
 
-    this.redraw();
+    this.redrawBody();
+    this.redrawState();
+    this.redrawGlass();
   }
 
   setState(state: ShelfState): void {
     if (this.state === state) return;
     this.state = state;
     if (state !== 'available') this.pulse = 0;
-    this.redraw();
+    this.redrawState();
   }
 
   getState(): ShelfState {
@@ -137,20 +158,20 @@ export class ShelfView extends Container {
   /** Прогресс опускания стекла (0..1) — гонится твином при закрытии. */
   setGlassDrop(v: number): void {
     this.glassDrop = v;
-    this.redraw();
+    this.redrawGlass();
   }
 
   /** Прогресс блика по стеклу (0..1); за пределами — блик не рисуется. */
   setShine(v: number): void {
     this.shine = v;
-    this.redraw();
+    this.drawShine();
   }
 
   /** Анимация пульсации. dt в миллисекундах. */
   tick(dt: number): void {
     if (this.state !== 'available') return;
     this.pulse = (this.pulse + dt / 900) % 1;
-    this.redraw();
+    this.redrawState();
   }
 
   /** Локальная координата центра места `slotIndex` (снизу вверх). */
@@ -205,61 +226,83 @@ export class ShelfView extends Container {
     ];
   }
 
-  private redraw(): void {
+  /** Корпус и декор скина. Зависит только от метрик — строится один раз. */
+  private redrawBody(): void {
     const { width, height } = this.metrics;
     const x = -width / 2;
     const y = -height;
     const radius = this.cornerRadius();
-    const faceted = this.style === 'crystal';
+
+    this.body.clear();
+
+    // Внутренний объём: сверху темнее, чтобы фигурки читались на фоне.
+    if (this.style === 'crystal') {
+      this.body.poly(this.facetPoints()).fill({ color: 0x000000, alpha: 0.32 });
+    } else {
+      this.body.roundRect(x, y, width, height, radius).fill({ color: 0x000000, alpha: 0.32 });
+    }
+
+    this.drawSkinDecor();
+    this.drawBase();
+  }
+
+  /** Всё, что зависит от состояния и фазы пульсации. Только это идёт покадрово. */
+  private redrawState(): void {
+    const { width, height } = this.metrics;
+    const x = -width / 2;
+    const y = -height;
+    const radius = this.cornerRadius();
 
     const frameColor = toNumber(this.theme.frame);
     const accent = toNumber(this.theme.accent);
     const glassColor = toNumber(this.theme.glass);
 
-    // --- Рама и внутренность --------------------------------------------
-    this.frame.clear();
-
-    // Подсветка под витриной: пятно на «полу», привязывает шкаф к сцене.
-    this.frame
-      .ellipse(0, 4, width * 0.52, width * 0.16)
-      .fill({ color: this.state === 'locked' ? accent : frameColor, alpha: 0.28 });
-
-    // Внутренний объём: сверху темнее, чтобы фигурки читались на фоне.
-    if (faceted) {
-      this.frame.poly(this.facetPoints()).fill({ color: 0x000000, alpha: 0.32 });
-    } else {
-      this.frame.roundRect(x, y, width, height, radius).fill({ color: 0x000000, alpha: 0.32 });
-    }
-
-    this.drawSkinDecor();
-
-    // Толщина и яркость рамы — главный носитель состояния. Он общий для всех
-    // скинов: «сюда можно положить» обязано выглядеть одинаково всегда.
     const selected = this.state === 'selected';
     const locked = this.state === 'locked';
     const available = this.state === 'available';
     const pulseAmount = available ? 0.5 + 0.5 * Math.sin(this.pulse * Math.PI * 2) : 0;
 
-    const strokeColor = locked || selected ? accent : available ? accent : frameColor;
+    // Подсветка под витриной: пятно на «полу», привязывает шкаф к сцене.
+    this.glow
+      .clear()
+      .ellipse(0, 4, width * 0.52, width * 0.16)
+      .fill({ color: locked ? accent : frameColor, alpha: 0.28 });
+
+    // Толщина и яркость рамы — главный носитель состояния. Он общий для всех
+    // скинов: «сюда можно положить» обязано выглядеть одинаково всегда.
+    const strokeColor = locked || selected || available ? accent : frameColor;
     const strokeAlpha = locked ? 0.95 : selected ? 1 : available ? 0.45 + pulseAmount * 0.5 : 0.6;
     // Литая латунь и деревянный корпус толще стеклянной витрины — это и
     // делает их «тяжёлыми» на вид.
     const heavy = this.style === 'brass' || this.style === 'wood' ? 1.4 : 0;
     const strokeWidth = (locked || selected ? 3 : available ? 2 + pulseAmount : 2) + heavy;
 
-    if (faceted) {
-      this.frame
+    this.outline.clear();
+    if (this.style === 'crystal') {
+      this.outline
         .poly(this.facetPoints())
         .stroke({ width: strokeWidth, color: strokeColor, alpha: strokeAlpha });
     } else {
-      this.frame
+      this.outline
         .roundRect(x, y, width, height, radius)
         .stroke({ width: strokeWidth, color: strokeColor, alpha: strokeAlpha });
     }
 
-    this.drawBase(locked);
+    // Светящаяся полоса под основанием: она же индикатор «витрина закрыта».
+    this.outline.roundRect(x + width * 0.2, -3, width * 0.6, 2.5, 1.25).fill({
+      color: locked ? accent : glassColor,
+      alpha: locked ? 0.9 : 0.32,
+    });
+  }
 
-    // --- Опустившееся стекло --------------------------------------------
+  /** Опустившееся стекло закрытой витрины. */
+  private redrawGlass(): void {
+    const { width, height } = this.metrics;
+    const x = -width / 2;
+    const y = -height;
+    const radius = this.cornerRadius();
+    const glassColor = toNumber(this.theme.glass);
+
     this.glass.clear();
     if (this.glassDrop > 0) {
       const panelHeight = height * this.glassDrop;
@@ -271,9 +314,6 @@ export class ShelfView extends Container {
         .roundRect(x + 2, y + panelHeight - 3, width - 4, 3, 1.5)
         .fill({ color: glassColor, alpha: 0.5 });
     }
-
-    // --- Блик, пробегающий по стеклу ------------------------------------
-    this.drawShine();
   }
 
   /**
@@ -285,7 +325,7 @@ export class ShelfView extends Container {
     const { width, height, slot, pad } = this.metrics;
     const x = -width / 2;
     const y = -height;
-    const g = this.frame;
+    const g = this.body;
     const frameColor = toNumber(this.theme.frame);
     const glassColor = toNumber(this.theme.glass);
     const accentAlt = toNumber(this.theme.accentAlt);
@@ -400,14 +440,12 @@ export class ShelfView extends Container {
   }
 
   /** Цоколь под витриной. У каждого скина он свой — это подпись конструкции. */
-  private drawBase(locked: boolean): void {
+  private drawBase(): void {
     const { width } = this.metrics;
     const x = -width / 2;
     const radius = this.metrics.radius;
-    const g = this.frame;
+    const g = this.body;
     const frameColor = toNumber(this.theme.frame);
-    const accent = toNumber(this.theme.accent);
-    const glassColor = toNumber(this.theme.glass);
 
     if (this.style === 'arcade') {
       // Плоская тумба во всю ширину: автомат стоит на полу, а не парит.
@@ -432,12 +470,6 @@ export class ShelfView extends Container {
         alpha: 0.55,
       });
     }
-
-    // Светящаяся полоса под основанием: она же индикатор «витрина закрыта».
-    g.roundRect(x + width * 0.2, -3, width * 0.6, 2.5, 1.25).fill({
-      color: locked ? accent : glassColor,
-      alpha: locked ? 0.9 : 0.32,
-    });
   }
 
   private drawShine(): void {

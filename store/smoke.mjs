@@ -172,8 +172,11 @@ const box = await page.locator('canvas').boundingBox();
 const points = await page.evaluate(() => window.__drop.shelfPoints());
 check('раскладка сообщила координаты витрин', points.length >= 5, `витрин: ${points.length}`);
 
+// Плашка адресуется по data-stat, а не по порядку: состав строки HUD зависит
+// от режима (в блице вместо ходов показываются очки), и позиционный селектор
+// молча читал бы соседнее — пустое — значение вместо счётчика ходов.
 const movesBefore = await page.evaluate(
-  () => document.querySelectorAll('.hud__stat b')[1]?.textContent ?? '?'
+  () => document.querySelector('[data-stat="moves"] b')?.textContent ?? '?'
 );
 
 // Пары «взять — положить»: по первым четырём витринам.
@@ -183,7 +186,7 @@ for (const point of points.slice(0, 4)) {
 }
 
 const movesAfter = await page.evaluate(
-  () => document.querySelectorAll('.hud__stat b')[1]?.textContent ?? '?'
+  () => document.querySelector('[data-stat="moves"] b')?.textContent ?? '?'
 );
 check(
   'тапы по витринам делают ходы',
@@ -255,6 +258,35 @@ check('гайд второй раз не показывается', (await page.
 // свободная витрина убраны, остаётся только подсказка из накопленных зарядов.
 const blitzTools = await page.locator('.hud__actions button:visible').count();
 check('в блице покупных инструментов нет', blitzTools === 1, `кнопок: ${blitzTools}`);
+
+// Строка HUD обязана помещаться в экран. Блиц — самый плотный режим (таймер
+// добавляет ещё одну плашку), и именно здесь строка переполнялась: пилюля с
+// монетами обрезалась, а кнопка звука уезжала за правый край целиком.
+// Проверяется не переполнение контейнера, а фактические границы каждого
+// элемента: `.ui` обрезает по overflow, и переполненная строка выглядела бы
+// «нормальной» по scrollWidth.
+const hudFit = await page.evaluate(() => {
+  const hud = document.querySelector('.hud');
+  if (!hud) return { ok: false, why: 'HUD не найден' };
+  const limit = window.innerWidth;
+  for (const node of hud.children) {
+    const rect = node.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) continue;
+    if (rect.left < -0.5 || rect.right > limit + 0.5) {
+      return {
+        ok: false,
+        why: `${node.className || node.tagName} выходит за экран: ${Math.round(rect.left)}…${Math.round(rect.right)} при ширине ${limit}`,
+      };
+    }
+  }
+  return { ok: true, why: '' };
+});
+check('строка HUD помещается в экран', hudFit.ok, hudFit.why);
+
+// Очки забега видны прямо во время блица, а не только на экране итога.
+const blitzScoreShown = await page.locator('[data-stat="score"]:visible').count();
+check('в блице показаны очки', blitzScoreShown === 1);
+
 await page.screenshot({ path: `${OUT}/smoke-07-blitz.png` });
 
 // Закрытый сет добавляет секунды и очки. Досортировывать уровни целиком тут не

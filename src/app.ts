@@ -21,7 +21,7 @@ import { Audio, Haptics } from './platform/audio';
 import type { Platform } from './platform/sdk';
 import { Background } from './render/background';
 import { BoardView } from './render/board-view';
-import { ComboFlash, Particles, Shake } from './render/fx';
+import { ComboFlash, Particles, Popups, Rings, Shake } from './render/fx';
 import { figurineTexture, preloadFigurines } from './render/textures';
 import { Tweens } from './render/tween';
 import {
@@ -60,6 +60,19 @@ import {
 /** Через сколько бездействия подсветить кнопку подсказки (план, §8). */
 const IDLE_HINT_MS = 20_000;
 
+/**
+ * Расходуемые товары — те, которые можно купить повторно.
+ *
+ * «Убрать рекламу» и скины сюда не входят: факт владения ими хранит сама
+ * платформа тем, что покупка остаётся непотреблённой (см.
+ * redeemPendingPurchases).
+ */
+const CONSUMABLE_PRODUCTS = new Set(['hints_10', 'week_pass']);
+
+function isConsumable(productId: string): boolean {
+  return CONSUMABLE_PRODUCTS.has(productId);
+}
+
 interface Session {
   mode: GameMode;
   spec: LevelSpec;
@@ -96,6 +109,8 @@ export class App {
 
   private readonly tweens = new Tweens();
   private readonly particles = new Particles();
+  private readonly rings = new Rings();
+  private readonly popups = new Popups();
   private readonly comboFlash = new ComboFlash();
   private readonly shake = new Shake();
   private background!: Background;
@@ -150,7 +165,16 @@ export class App {
     root.appendChild(this.pixi.canvas);
 
     this.background = new Background(this.theme());
-    this.stage.addChild(this.background, this.particles, this.comboFlash);
+    // Порядок слоёв: фон → (поле вставляется сюда) → кольца → частицы →
+    // всплывающие числа → вспышка комбо. Числа выше частиц намеренно: салют
+    // из закрывшейся витрины бьёт ровно туда, где всплывает «+2 с».
+    this.stage.addChild(
+      this.background,
+      this.rings,
+      this.particles,
+      this.popups,
+      this.comboFlash
+    );
     this.pixi.stage.addChild(this.stage);
 
     this.uiRoot = el('div', 'ui');
@@ -168,6 +192,13 @@ export class App {
     // считается от метки времени.
     this.pixi.ticker.minFPS = 4;
     this.pixi.ticker.add((ticker) => this.tick(ticker.deltaMS));
+
+    // Контекстное меню браузера в игровой области выключено — требование
+    // площадки (§1.6). На телефоне оно всплывает от долгого нажатия, а долгое
+    // нажатие здесь — обычный способ подумать над ходом, не отрывая палец:
+    // без этого меню открывалось прямо посреди партии.
+    root.addEventListener('contextmenu', (event) => event.preventDefault());
+
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 120));
     this.resize();
@@ -225,15 +256,20 @@ export class App {
   }
 
   /**
-   * Полю отдаётся вертикаль между HUD и кнопками. Значения совпадают с
-   * отступами в styles.css: HUD сверху и панель инструментов снизу.
+   * Полю отдаётся вертикаль между HUD и кнопками.
+   *
+   * Границы измеряются по фактическим размерам строк HUD, а не берутся
+   * константами. Константы 78/86 совпадали с отступами в styles.css ровно при
+   * одном сочетании: без вырезов экрана, при системном шрифте обычного
+   * размера и при видимых кнопках инструментов. На телефоне с «бровью» поле
+   * заезжало под HUD, а в блице, где половины кнопок нет, снизу оставалась
+   * полоса пустоты в размер несуществующего ряда.
    */
   private layoutBoard(): void {
     if (!this.session) return;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const top = 78;
-    const bottom = 86;
+    const { top, bottom } = this.hud?.metrics() ?? { top: 78, bottom: 86 };
     const area = Math.max(160, h - top - bottom);
     this.session.view.layout(w, area);
     this.session.view.y = top;
@@ -242,7 +278,9 @@ export class App {
   private tick(dt: number): void {
     this.tweens.update(dt);
     this.background.update(dt);
+    this.rings.update(dt);
     this.particles.update(dt);
+    this.popups.update(dt);
     this.comboFlash.update(dt);
 
     const offset = this.shake.update(dt);
@@ -290,6 +328,7 @@ export class App {
       closed: session.board.closedCount,
       total: session.board.speciesCount,
       seconds: session.mode === 'blitz' ? session.timeLeft : null,
+      score: session.mode === 'blitz' ? session.score : null,
       hints: this.profile.hints,
       canUndo: session.board.canUndo && !session.view.isBusy,
       muted: this.audio.isMuted,
@@ -477,7 +516,7 @@ export class App {
     }
     this.applyPurchase(productId);
     // Расходуемые товары нужно подтверждать, иначе их нельзя купить повторно.
-    if (productId === 'hints_10' || productId === 'week_pass') {
+    if (isConsumable(productId)) {
       await this.platform.consume(token);
     }
     await this.showShop();
@@ -548,12 +587,24 @@ export class App {
     }
   }
 
-  /** Незакрытые покупки с прошлого запуска: выдать товар, который уже оплачен. */
+  /**
+   * Незакрытые покупки с прошлого запуска: выдать товар, который уже оплачен.
+   *
+   * Подтверждаются (consume) только расходуемые товары. У платформы нет
+   * отдельного типа «навсегда»: непотреблённая покупка просто продолжает
+   * приходить в getPurchases при каждом запуске — именно так и хранится факт
+   * владения. Раньше здесь потреблялось всё подряд, и «Убрать рекламу» с
+   * купленным скином исчезали из списка покупок навсегда: на новом устройстве
+   * или после сброса данных игрок остался бы без того, за что заплатил, и
+   * восстановить это было бы уже нечем.
+   */
   async redeemPendingPurchases(): Promise<void> {
     const pending = await this.platform.pendingPurchases();
     for (const purchase of pending) {
       this.applyPurchase(purchase.productID);
-      await this.platform.consume(purchase.purchaseToken);
+      if (isConsumable(purchase.productID)) {
+        await this.platform.consume(purchase.purchaseToken);
+      }
     }
   }
 
@@ -681,6 +732,8 @@ export class App {
       shelfStyle: skinById(this.profile.activeSkin).shelf,
       tweens: this.tweens,
       particles: this.particles,
+      rings: this.rings,
+      popups: this.popups,
       callbacks: {
         onLift: () => {
           this.audio.lift();
@@ -696,13 +749,13 @@ export class App {
           this.noteInput();
         },
         onMove: () => this.persistResume(),
-        onClose: (_shelf, _species, combo) => {
+        onClose: (shelf, _species, combo) => {
           // Витрина закрылась — значит заполнена целиком: верхняя нота гаммы.
           this.audio.place(1);
           this.audio.glassClose();
           this.haptics.close();
           this.shake.fire(5);
-          this.onSetClosed(combo);
+          this.onSetClosed(combo, shelf);
         },
         onCombo: (length, color) => {
           this.audio.combo(length);
@@ -744,8 +797,11 @@ export class App {
     });
     this.uiRoot.appendChild(this.hud.root);
 
-    this.layoutBoard();
+    // Сначала HUD, потом раскладка: раскладка измеряет строки HUD, а в
+    // соревновательных режимах часть кнопок скрывается именно в update().
+    // В обратном порядке поле в блице получало границы от кнопок, которых нет.
     this.updateHud();
+    this.layoutBoard();
     this.noteInput();
     this.platform.gameplayStart();
   }
@@ -760,6 +816,8 @@ export class App {
     this.hud = null;
     this.tweens.clear();
     this.particles.clear();
+    this.rings.clear();
+    this.popups.clear();
   }
 
   private noteInput(): void {
@@ -781,21 +839,31 @@ export class App {
   }
 
   /** `combo` — длина текущей серии закрытий, её считает BoardView. */
-  private onSetClosed(combo: number): void {
+  private onSetClosed(combo: number, shelfIndex: number): void {
     const session = this.session;
     if (!session) return;
     session.setsClosed += 1;
-    if (session.mode === 'blitz') {
-      // +2 секунды за каждый закрытый сет (план, §4).
-      session.deadline = Math.min(
-        Date.now() + BLITZ_DURATION * 1000,
-        session.deadline + BLITZ_TIME_BONUS * 1000
-      );
-      // Очки растут с длиной серии: забег получает кривую напряжения, а не
-      // линейное накопление. Раньше здесь всегда стояла единица, и вся
-      // комбо-математика из scoring.ts просто не работала.
-      session.score += blitzSetPoints(combo);
-    }
+    if (session.mode !== 'blitz') return;
+
+    // +2 секунды за каждый закрытый сет (план, §4).
+    const before = session.deadline;
+    session.deadline = Math.min(
+      Date.now() + BLITZ_DURATION * 1000,
+      session.deadline + BLITZ_TIME_BONUS * 1000
+    );
+    // Очки растут с длиной серии: забег получает кривую напряжения, а не
+    // линейное накопление. Раньше здесь всегда стояла единица, и вся
+    // комбо-математика из scoring.ts просто не работала.
+    const points = blitzSetPoints(combo);
+    session.score += points;
+
+    // Обе прибавки показываются там, где начисляются: очки и время — единственные
+    // две величины, ради которых игрок в блице вообще торопится, и молча
+    // менять их в углу экрана значит не отдавать награду.
+    const seconds = Math.round((session.deadline - before) / 1000);
+    this.hud?.popScore(points);
+    this.hud?.popTime(seconds);
+    if (seconds > 0) session.view.popup(shelfIndex, `+${seconds} с`, '#ffd23f');
   }
 
   // --- Инструменты --------------------------------------------------------
@@ -1012,6 +1080,8 @@ export class App {
       shelfStyle: skinById(this.profile.activeSkin).shelf,
       tweens: this.tweens,
       particles: this.particles,
+      rings: this.rings,
+      popups: this.popups,
       callbacks: {
         onLift: () => this.audio.lift(),
         onPlace: () => this.haptics.place(),
@@ -1019,11 +1089,11 @@ export class App {
           this.audio.reject();
           this.haptics.reject();
         },
-        onClose: (_s, _species, combo) => {
+        onClose: (shelf, _species, combo) => {
           this.audio.glassClose();
           this.haptics.close();
           this.shake.fire(5);
-          this.onSetClosed(combo);
+          this.onSetClosed(combo, shelf);
         },
         onCombo: (length, color) => {
           this.audio.combo(length);
