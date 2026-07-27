@@ -99,13 +99,15 @@ async function startCampaign(page: Page): Promise<void> {
     await page.waitForTimeout(280);
   }
 
+  // Диалог «Продолжить партию?» закрывается без разбора его заголовка. Раньше
+  // здесь стояла проверка на слово «продолжить», и в английской локали она не
+  // срабатывала: диалог оставался на экране, HUD не появлялся, и снимок экрана
+  // победы для англоязычной витрины просто не получался.
   const confirm = page.locator('.overlay.is-open .card');
   if (await confirm.count()) {
-    const title = (await confirm.locator('.card__title').textContent()) ?? '';
-    if (/продолжить/i.test(title)) {
-      await confirm.locator('button').first().click();
-      await page.waitForTimeout(500);
-    }
+    // Первая кнопка в этом диалоге — «продолжить»; вторая начинает заново.
+    await confirm.locator('button').first().click();
+    await page.waitForTimeout(500);
   }
   await page.waitForSelector('.hud__actions', { timeout: 10000 });
 }
