@@ -28,11 +28,14 @@ import {
   PRODUCT_IDS,
 } from '../src/platform/ids';
 import {
+  BLITZ_REFILL_MS,
   PASS_DAILY_COINS,
   PASS_DAYS,
   Profile,
   type ProfileStorage,
 } from '../src/meta/profile';
+import { addDays, dayKey, daysBetween, installClock, now, resetClock } from '../src/platform/clock';
+import { dailyLevel } from '../src/levels/provider';
 import {
   easeBack,
   easeBounce,
@@ -693,6 +696,134 @@ group('Недельный пропуск', () => {
     assert.equal(p.passActive, false);
     assert.equal(p.passDaysLeft, 0);
     assert.equal(p.claimPass(), null);
+  });
+});
+
+group('Часы игры и календарная мета', () => {
+  // Всё, что выдаётся «раз в сутки», площадка предлагает считать по
+  // ysdk.serverTime(): часы устройства игрок переводит сам, и на них
+  // ежедневная награда печатается сколько угодно раз за вечер. Здесь
+  // проверяется, что мета действительно спрашивает часы игры, а не Date.now().
+
+  /** Прогнать сценарий на подставных часах и обязательно вернуть настоящие. */
+  async function atTime<T>(ts: () => number, fn: () => T | Promise<T>): Promise<T> {
+    installClock(ts);
+    try {
+      return await fn();
+    } finally {
+      resetClock();
+    }
+  }
+
+  test('день считается по UTC, а не по поясу устройства', () => {
+    // 22:30 UTC 1 марта — это уже 2 марта в Москве. День должен остаться
+    // первым: иначе сутки сдвигались бы переключением часового пояса.
+    assert.equal(dayKey(Date.UTC(2026, 2, 1, 22, 30)), '2026-03-01');
+    assert.equal(dayKey(Date.UTC(2026, 2, 1, 0, 0)), '2026-03-01');
+    assert.equal(addDays('2026-02-28', 1), '2026-03-01');
+    assert.equal(daysBetween('2026-03-01', '2026-03-08'), 7);
+    assert.equal(daysBetween('мусор', '2026-03-08'), 99, 'битая дата — не «сегодня»');
+  });
+
+  test('часы игры берут время площадки', async () => {
+    const server = Date.UTC(2030, 0, 1);
+    const seen = await atTime(
+      () => server,
+      () => now()
+    );
+    assert.equal(seen, server);
+    // Источник снят — снова часы устройства.
+    assert.ok(Math.abs(now() - Date.now()) < 1000);
+  });
+
+  test('отказ часов площадки не роняет игру', async () => {
+    const seen = await atTime(
+      () => {
+        throw new Error('SDK молчит');
+      },
+      () => now()
+    );
+    assert.ok(Math.abs(seen - Date.now()) < 1000, 'нет отката на часы устройства');
+  });
+
+  test('награда за вход выдаётся по дням часов игры', async () => {
+    // 21:00 UTC — в Москве это уже полночь следующих суток. Награда должна
+    // ждать полуночи UTC, одной и той же для всех игроков.
+    let ts = Date.UTC(2026, 5, 10, 21);
+    await atTime(
+      () => ts,
+      async () => {
+        const p = new Profile(storage());
+        await p.load();
+        const first = p.claimStreak();
+        assert.ok(first, 'первая награда не выдана');
+        assert.equal(p.claimStreak(), null, 'вторая награда в тот же день');
+
+        ts += 2 * 3_600_000;
+        assert.equal(p.claimStreak(), null, 'награда выдана до конца суток UTC');
+
+        ts += 2 * 3_600_000;
+        const second = p.claimStreak();
+        assert.ok(second, 'награда следующего дня не выдана');
+        assert.equal(second.day, 2, 'серия не продолжилась');
+      }
+    );
+  });
+
+  test('вызов дня и отметка о нём меняются в одну и ту же полночь', async () => {
+    let ts = Date.UTC(2026, 5, 10, 23, 30);
+    await atTime(
+      () => ts,
+      async () => {
+        const p = new Profile(storage());
+        await p.load();
+        const levelBefore = dailyLevel().id;
+        p.completeDaily(20);
+        assert.equal(p.dailyDoneToday, true);
+
+        // Полчаса спустя наступили новые сутки UTC: и уровень другой, и
+        // отметка сброшена. Раньше уровень менялся по UTC, а отметка — по
+        // местной полуночи, и в UTC+3 один и тот же вызов сдавался дважды.
+        ts += 31 * 60_000;
+        assert.notEqual(dailyLevel().id, levelBefore, 'вызов дня не сменился');
+        assert.equal(p.dailyDoneToday, false, 'отметка о вызове не сброшена');
+      }
+    );
+  });
+
+  test('попытки блица восстанавливаются по часам игры', async () => {
+    let ts = Date.UTC(2026, 5, 10, 12);
+    await atTime(
+      () => ts,
+      async () => {
+        const p = new Profile(storage());
+        await p.load();
+        while (p.blitzAttempts > 0) assert.equal(p.consumeBlitzAttempt(), true);
+        assert.equal(p.blitzAttempts, 0);
+        assert.ok(p.blitzRefillIn > 0, 'таймер восстановления не запущен');
+
+        ts += BLITZ_REFILL_MS;
+        assert.equal(p.blitzAttempts, 1, 'попытка не вернулась по времени');
+      }
+    );
+  });
+
+  test('профиль не пишет заводские значения до чтения сохранения', async () => {
+    // Стартовая реклама присылает паузу раньше, чем приходит ответ getData, а
+    // обработчик паузы сбрасывает профиль на сервер. Такая запись затёрла бы
+    // весь прогресс игрока пустышкой.
+    const platform = storage();
+    const saved = new Profile(platform);
+    await saved.load();
+    saved.addCoins(500);
+    await saved.flush();
+
+    const fresh = new Profile(platform);
+    assert.equal(await fresh.flush(), false, 'непрочитанный профиль записан');
+
+    const reread = new Profile(platform);
+    await reread.load();
+    assert.ok(reread.coins >= 500, 'прогресс затёрт записью до чтения');
   });
 });
 

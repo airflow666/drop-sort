@@ -19,6 +19,7 @@ import { Application, Container } from 'pixi.js';
 import { Board, findHint, rateLevel, BLITZ_DURATION, BLITZ_TIME_BONUS, blitzSetPoints } from './core';
 import type { LevelSpec } from './core';
 import { blitzLevel, campaignLevel, dailyLevel } from './levels/provider';
+import { now } from './platform/clock';
 import { BLIND_BOX_COST, isCompetitive, PASS_DAYS, Profile, type GameMode } from './meta/profile';
 import { Ads } from './platform/ads';
 import {
@@ -125,6 +126,18 @@ export class App {
   private paused = false;
   /** Когда началась пауза платформы — на это время продлевается забег блица. */
   private pausedAt = 0;
+  /** Шёл ли геймплей до паузы площадки: только его и возобновляем. */
+  private resumeGameplay = false;
+  /** Диалог выхода (кнопка «Назад» на ТВ) уже открыт — второй не нужен. */
+  private exitAsked = false;
+  /**
+   * Оценку игры площадка разрешает спросить один раз за сессию, и просить её
+   * стоит на подъёме, а не посреди партии: флаг взводится в момент удачи
+   * (пройдена витрина на три звезды, побит рекорд блица), а сам запрос уходит
+   * уже в меню — см. maybeRequestReview.
+   */
+  private reviewPending = false;
+  private reviewAsked = false;
 
   constructor(platform: Platform) {
     this.platform = platform;
@@ -152,6 +165,19 @@ export class App {
     // начертания между экраном загрузки и меню.
     const bootLogo = document.querySelector('#boot .logo');
     if (bootLogo) bootLogo.textContent = brand();
+
+    // Подписка на паузу — до всякой загрузки, а не после неё.
+    //
+    // Полноэкранную рекламу на старте площадка показывает сама, без callback-ов,
+    // и единственный признак этого — события game_api_pause / game_api_resume.
+    // Прийти они могут раньше, чем игра закончит подниматься, и подписка в
+    // конце старта пропустила бы паузу: звук и таймер продолжали бы работать
+    // под чужим роликом. Обработчикам ничего, кроме звука и платформы, не
+    // нужно — оба готовы уже здесь.
+    this.platform.onPauseResume(
+      () => this.onPlatformPause(),
+      () => this.onPlatformResume()
+    );
 
     await this.profile.load();
     this.audio.setMuted(this.profile.settings.muted);
@@ -220,16 +246,10 @@ export class App {
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
 
-    this.platform.onPauseResume(
-      () => this.onPlatformPause(),
-      () => this.onPlatformResume()
-    );
-
-    // Сообщаем платформе о готовности ровно один раз, когда игра реально
-    // готова к вводу, — иначе модерация считает это ошибкой.
-    this.platform.loadingReady();
-    document.getElementById('boot')?.classList.add('hide');
-    setTimeout(() => document.getElementById('boot')?.remove(), 400);
+    // Кнопка «Назад» на пульте телевизора: платформа требует свой диалог с
+    // подтверждением, а не молчаливый выход. В обычном браузере событие не
+    // приходит вовсе, поэтому подписка ничего не стоит.
+    this.platform.onHistoryBack(() => void this.onHistoryBack());
 
     // Sticky-баннер на всю сессию, но не для тех, кто купил «без рекламы».
     if (!this.profile.noAds) void this.ads.showSticky();
@@ -237,6 +257,14 @@ export class App {
     this.exposeDebugApi();
 
     await this.showMenu();
+
+    // ready() — последним и только теперь: документация требует, чтобы в этот
+    // момент экранов загрузки уже не было, а всё на экране было готово к
+    // нажатию. Меню построено строкой выше, загрузчик снимаем прямо здесь.
+    document.getElementById('boot')?.classList.add('hide');
+    setTimeout(() => document.getElementById('boot')?.remove(), 400);
+    this.platform.loadingReady();
+
     await this.runEntryRituals();
   }
 
@@ -321,7 +349,7 @@ export class App {
 
     if (session.mode === 'blitz') {
       const before = Math.ceil(session.timeLeft);
-      session.timeLeft = Math.max(0, (session.deadline - Date.now()) / 1000);
+      session.timeLeft = Math.max(0, (session.deadline - now()) / 1000);
       const after = Math.ceil(session.timeLeft);
       // Тиканье последних секунд — только на смене целой секунды.
       if (after !== before && after <= 5 && after > 0) this.audio.tick(after <= 3);
@@ -389,6 +417,23 @@ export class App {
         onToggleSound: () => this.toggleSound(),
       })
     );
+    void this.maybeRequestReview();
+  }
+
+  /**
+   * Предложить оценить игру — если было чему радоваться.
+   *
+   * Момент выбран намеренно: не на старте, где игрок ещё ничего не видел, и не
+   * поверх карточки победы, где всплывающее окно перебивает награду. Флаг
+   * взводится удачей, а окно показывается уже в меню, когда партия закончена.
+   * Можно ли вообще спрашивать (авторизован ли игрок, не оценивал ли раньше),
+   * решает площадка внутри `canReview` — и спрашиваем не чаще раза за сессию.
+   */
+  private async maybeRequestReview(): Promise<void> {
+    if (!this.reviewPending || this.reviewAsked) return;
+    this.reviewPending = false;
+    this.reviewAsked = true;
+    await this.platform.requestReview();
   }
 
   private refreshMenu(): void {
@@ -841,7 +886,7 @@ export class App {
       levelNumber: opts.levelNumber,
       usedHint: opts.usedHint,
       doubledCoins: false,
-      deadline: opts.mode === 'blitz' ? Date.now() + BLITZ_DURATION * 1000 : 0,
+      deadline: opts.mode === 'blitz' ? now() + BLITZ_DURATION * 1000 : 0,
       timeLeft: opts.mode === 'blitz' ? BLITZ_DURATION : 0,
       score: 0,
       setsClosed: 0,
@@ -911,7 +956,7 @@ export class App {
     // +2 секунды за каждый закрытый сет (план, §4).
     const before = session.deadline;
     session.deadline = Math.min(
-      Date.now() + BLITZ_DURATION * 1000,
+      now() + BLITZ_DURATION * 1000,
       session.deadline + BLITZ_TIME_BONUS * 1000
     );
     // Очки растут с длиной серии: забег получает кривую напряжения, а не
@@ -1064,6 +1109,9 @@ export class App {
 
     if (session.mode === 'campaign') {
       this.profile.completeCampaignLevel(session.levelNumber, result.stars);
+      // Три звезды на витрине из первого десятка — хороший повод спросить
+      // оценку. Не на первом уровне: там игрок ещё не видел игру.
+      if (result.stars === 3 && session.levelNumber >= 3) this.reviewPending = true;
       await this.campaignVictory(session, result.stars, result.coins);
     } else {
       const isRecord = this.profile.completeDaily(session.board.moves);
@@ -1188,6 +1236,8 @@ export class App {
     const score = session.score;
     const sets = session.setsClosed;
     const isRecord = this.profile.recordBlitz(score);
+    // Личный рекорд — второй повод спросить оценку (см. maybeRequestReview).
+    if (isRecord && score > 0) this.reviewPending = true;
     // Монеты за забег — иначе блиц не кормит мету и остаётся тупиковым режимом.
     this.profile.addCoins(Math.round(score / 40));
     await this.platform.submitScore(LEADERBOARD_BLITZ, score);
@@ -1275,7 +1325,13 @@ export class App {
   private onPlatformPause(): void {
     if (this.paused) return;
     this.paused = true;
-    this.pausedAt = Date.now();
+    this.pausedAt = now();
+    // Запоминаем, шёл ли геймплей ДО паузы площадки. Иначе после возвращения
+    // во вкладку мы бы отправили GameplayAPI.start() из любого состояния —
+    // из открытого меню паузы, с экрана победы, поверх рекламного ролика, —
+    // и разметка геймплея стала бы враньём: платформа считала бы, что игрок
+    // играет, пока он смотрит модалку.
+    this.resumeGameplay = this.platform.isGameplayRunning;
     this.audio.setDucked(true);
     this.platform.gameplayStop();
     void this.profile.flush();
@@ -1286,13 +1342,44 @@ export class App {
     // Забег продлевается на всё время паузы: игрок не должен терять секунды,
     // пока смотрит рекламу или свернул вкладку.
     if (this.session && this.pausedAt > 0) {
-      this.session.deadline += Date.now() - this.pausedAt;
+      this.session.deadline += now() - this.pausedAt;
     }
     this.pausedAt = 0;
     this.paused = false;
     this.audio.setDucked(false);
     this.noteInput();
-    if (this.session) this.platform.gameplayStart();
+    if (this.session && this.resumeGameplay) this.platform.gameplayStart();
+    this.resumeGameplay = false;
+  }
+
+  /**
+   * Кнопка «Назад» на телевизионном пульте.
+   *
+   * Платформа присылает событие вместо того, чтобы закрывать игру самой:
+   * выйти игрок должен через наш диалог, подтвердив намерение. Пока диалог
+   * открыт, геймплей стоит — это обычная пауза, а не отдельное состояние.
+   */
+  private async onHistoryBack(): Promise<void> {
+    if (this.exitAsked) return;
+    this.exitAsked = true;
+    const wasRunning = this.platform.isGameplayRunning;
+    this.platform.gameplayStop();
+    try {
+      const leave = await showConfirm(this.uiRoot, {
+        title: t('exit.title'),
+        text: t('exit.text'),
+        confirm: t('exit.confirm'),
+        cancel: t('common.resume'),
+      });
+      if (leave) {
+        await this.profile.flush();
+        this.platform.exit();
+        return;
+      }
+      if (wasRunning) this.platform.gameplayStart();
+    } finally {
+      this.exitAsked = false;
+    }
   }
 
   // --- Отладочный доступ --------------------------------------------------
@@ -1330,7 +1417,7 @@ export class App {
       },
       /** Оборвать таймер блица, чтобы не ждать 60 секунд. */
       endBlitzNow: (): void => {
-        if (this.session?.mode === 'blitz') this.session.deadline = Date.now();
+        if (this.session?.mode === 'blitz') this.session.deadline = now();
       },
       /** Экранные центры витрин — чтобы тест тапал по реальной раскладке. */
       shelfPoints: (): Array<{ x: number; y: number }> => this.session?.view.shelfPoints() ?? [],

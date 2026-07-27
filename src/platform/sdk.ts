@@ -19,11 +19,20 @@
  */
 
 import { t } from '../i18n';
+import { installClock } from './clock';
 
 const LS_KEY = 'drop.save.v1';
 const LS_LEADERBOARD = 'drop.mock.leaderboard.v1';
 const INIT_TIMEOUT_MS = 10_000;
 const CALL_TIMEOUT_MS = 8_000;
+
+/**
+ * Лимит площадки на запись данных игрока — 100 обращений за 5 минут, дальше
+ * запрос отклоняется ошибкой. Держимся ниже с запасом: в тот же лимит попадает
+ * и чтение на старте, и внеплановые записи после покупок.
+ */
+const SAVE_LIMIT = 80;
+const SAVE_WINDOW_MS = 5 * 60_000;
 
 export interface LeaderboardEntry {
   rank: number;
@@ -121,6 +130,10 @@ export class Platform {
   private gameplayRunning = false;
   private loadingReadySent = false;
   private bannerShown = false;
+  /** Оценку игры площадка разрешает просить один раз за сессию. */
+  private reviewRequested = false;
+  /** Моменты фактических записей — для соблюдения лимита площадки. */
+  private readonly writes: number[] = [];
 
   constructor(ysdk: AnySdk | null) {
     this.ysdk = ysdk;
@@ -160,7 +173,38 @@ export class Platform {
     if (!this.player) this.player = new MockPlayer();
   }
 
+  // --- Время --------------------------------------------------------------
+
+  /**
+   * Текущее время площадки, мс.
+   *
+   * `ysdk.serverTime()` — то же по формату, что `Date.now()`, но одинаковое на
+   * всех устройствах и неподвластное переводу системных часов. Всё, что игрок
+   * получает по календарю (награда за вход, пропуск, вызов дня, сезон) и всё,
+   * что меряется секундами в лидерборд (забег блица), считает время отсюда.
+   *
+   * Вызывается на каждое обращение, как требует документация, а не берётся
+   * поправка один раз на старте: поправка, снятая до перевода часов, ровно
+   * настолько же врёт после него.
+   */
+  now(): number {
+    if (!this.isMock) {
+      try {
+        const value = this.ysdk.serverTime?.();
+        if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+      } catch {
+        /* метода нет или он отказал — часы устройства */
+      }
+    }
+    return Date.now();
+  }
+
   // --- Обязательные для модерации сигналы ---------------------------------
+
+  /** Идёт ли сейчас размеченный геймплей. */
+  get isGameplayRunning(): boolean {
+    return this.gameplayRunning;
+  }
 
   /** Игра загрузилась. Ровно один раз, иначе платформа считает это ошибкой. */
   loadingReady(): void {
@@ -234,6 +278,43 @@ export class Platform {
     unsubs.push(() => document.removeEventListener('visibilitychange', onVisibility));
 
     return () => unsubs.forEach((fn) => fn());
+  }
+
+  /**
+   * Кнопка «Назад» на пульте телевизора.
+   *
+   * Событие приходит только в телевизионном встраивании. Платформа требует
+   * показать по нему СВОЙ диалог с подтверждением выхода, а не выходить молча,
+   * и отправить `EXIT` уже после подтверждения — см. exit().
+   */
+  onHistoryBack(handler: () => void): Unsubscribe {
+    if (this.isMock) return () => {};
+    try {
+      const name = this.ysdk.EVENTS?.HISTORY_BACK ?? 'HISTORY_BACK';
+      // on() в этом семействе событий возвращает функцию отписки; на части
+      // встраиваний — ничего, тогда отписываемся через off().
+      const off = this.ysdk.on?.(name, handler);
+      if (typeof off === 'function') return off as Unsubscribe;
+      return () => {
+        try {
+          this.ysdk.off?.(name, handler);
+        } catch {
+          /* не поддерживается */
+        }
+      };
+    } catch {
+      return () => {};
+    }
+  }
+
+  /** Игрок подтвердил выход в нашем диалоге — сообщаем платформе. */
+  exit(): void {
+    if (this.isMock) return void mockLog('dispatchEvent EXIT');
+    try {
+      this.ysdk.dispatchEvent?.(this.ysdk.EVENTS?.EXIT ?? 'EXIT');
+    } catch (e) {
+      console.warn('EXIT не отправлен', e);
+    }
   }
 
   // --- Реклама ------------------------------------------------------------
@@ -359,6 +440,14 @@ export class Platform {
    */
   async setData(data: Record<string, unknown>, flush = false): Promise<boolean> {
     if (!this.player) return false;
+    if (!this.takeWriteSlot()) {
+      // Лимит площадки исчерпан. Отправлять всё равно смысла нет — запрос
+      // отклонят с ошибкой, а профиль по возвращённому false оставит данные
+      // грязными и повторит попытку позже. Это ровно тот случай, ради
+      // которого setData возвращает результат, а не void.
+      console.warn('setData отложен: лимит записей площадки');
+      return false;
+    }
     try {
       // Таймаут возвращает false: молчащий сервер — это НЕ успешная запись.
       return await Promise.race([
@@ -369,6 +458,21 @@ export class Platform {
       console.warn('setData не удался', e);
       return false;
     }
+  }
+
+  /**
+   * Занять место в окне лимита записей.
+   *
+   * Окно считается по часам устройства, а не по серверным: здесь меряется
+   * промежуток между нашими же вызовами, и перевод часов игроком лимит
+   * площадки не отменяет — рискуем только собственными отказами.
+   */
+  private takeWriteSlot(): boolean {
+    const edge = Date.now() - SAVE_WINDOW_MS;
+    while (this.writes.length > 0 && this.writes[0] < edge) this.writes.shift();
+    if (this.writes.length >= SAVE_LIMIT) return false;
+    this.writes.push(Date.now());
+    return true;
   }
 
   playerName(): string {
@@ -605,14 +709,42 @@ export class Platform {
     }
   }
 
-  /** Предложить оценить игру. Платформа сама решает, можно ли сейчас. */
-  async requestReview(): Promise<void> {
-    if (this.isMock) return void mockLog('requestReview');
+  /**
+   * Предложить оценить игру.
+   *
+   * Порядок задан документацией и обязателен: сначала `canReview()`, только
+   * потом `requestReview()`. Без проверки площадка отвечает отказом с ошибкой
+   * «use canReview before requestReview», а спросить можно ровно один раз за
+   * сессию — поэтому второй вызов не проходит дальше флага. Причин отказа
+   * несколько (не авторизован, уже оценивал, запрос уже был), и все они
+   * нормальны: оценка — не то, что можно требовать.
+   *
+   * Возвращает, поставил ли игрок оценку.
+   */
+  async requestReview(): Promise<boolean> {
+    if (this.reviewRequested) return false;
+    this.reviewRequested = true;
+    if (this.isMock) {
+      mockLog('requestReview');
+      return true;
+    }
     try {
-      const { value } = await this.ysdk.feedback.canReview();
-      if (value) await this.ysdk.feedback.requestReview();
+      const can = await Promise.race([
+        this.ysdk.feedback.canReview(),
+        timeout(CALL_TIMEOUT_MS, { value: false, reason: 'TIMEOUT' }),
+      ]);
+      if (!can?.value) {
+        console.log('оценку сейчас не спрашиваем:', can?.reason);
+        return false;
+      }
+      const result = await Promise.race([
+        this.ysdk.feedback.requestReview(),
+        timeout(CALL_TIMEOUT_MS, { feedbackSent: false }),
+      ]);
+      return Boolean(result?.feedbackSent);
     } catch (e) {
       console.warn('requestReview не удался', e);
+      return false;
     }
   }
 }
@@ -649,6 +781,9 @@ export async function initPlatform(): Promise<Platform> {
     }
   }
   const platform = new Platform(ysdk);
+  // Часы игры переводятся на серверное время ДО загрузки профиля: календарные
+  // награды считаются уже при первом чтении сохранения.
+  installClock(() => platform.now());
   try {
     await Promise.race([platform.init(), timeout(INIT_TIMEOUT_MS, undefined)]);
   } catch (e) {

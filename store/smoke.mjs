@@ -79,6 +79,31 @@ page.on('request', (req) => {
   }
 });
 
+/**
+ * Снимок экрана в момент LoadingAPI.ready().
+ *
+ * Документация площадки требует, чтобы в этот момент экранов загрузки уже не
+ * было, а интерфейс был готов к нажатию. Проверить это постфактум нельзя — к
+ * концу теста верно и то и другое, — поэтому подсовываем игре массив лога с
+ * перехваченным push: он записывает состояние страницы ровно в тот кадр,
+ * когда игра сообщает площадке о готовности.
+ */
+await page.addInitScript(() => {
+  const log = [];
+  const push = log.push.bind(log);
+  log.push = (entry) => {
+    if (String(entry).includes('LoadingAPI.ready')) {
+      const boot = document.getElementById('boot');
+      window.__readyAt = {
+        loaderVisible: Boolean(boot) && !boot.classList.contains('hide'),
+        menuReady: document.querySelectorAll('.mode').length,
+      };
+    }
+    return push(entry);
+  };
+  window.__ysdkMockLog = log;
+});
+
 console.log(`\nСмоук-тест: ${URL}\n`);
 
 await page.goto(URL, { waitUntil: 'load' });
@@ -120,6 +145,17 @@ check(
   'LoadingAPI.ready вызван ровно один раз',
   sdkLog.filter((l) => l.includes('LoadingAPI.ready')).length === 1,
   sdkLog.join(' | ')
+);
+const readyAt = await page.evaluate(() => window.__readyAt ?? null);
+check(
+  'на момент ready() загрузчика на экране нет',
+  readyAt !== null && readyAt.loaderVisible === false,
+  JSON.stringify(readyAt)
+);
+check(
+  'на момент ready() меню уже собрано',
+  readyAt !== null && readyAt.menuReady === 3,
+  JSON.stringify(readyAt)
 );
 check(
   'sticky-баннер запрошен',
@@ -198,6 +234,29 @@ check(
   `ходов было ${movesBefore}, стало ${movesAfter}`
 );
 await page.screenshot({ path: `${OUT}/smoke-03-moves.png` });
+
+// --- Возврат в игру после ролика ------------------------------------------
+phase('ролик посреди уровня');
+// Подсказка, отмена хода и свободная витрина берутся роликом прямо посреди
+// партии: игрок возвращается в ТОТ ЖЕ уровень, и площадке об этом нужно
+// сказать. Документация называет возобновление после рекламы отдельным
+// случаем для GameplayAPI.start() — без него платформа до конца уровня
+// считала бы, что игрок не играет.
+const undoBtn = page.locator('.hud__actions button[aria-label="Отменить ход"]');
+if ((await undoBtn.count()) && (await undoBtn.isEnabled())) {
+  await undoBtn.click();
+  await page.waitForTimeout(600);
+  const afterAdLog = await page.evaluate(() => window.__ysdkMockLog ?? []);
+  const lastRewarded = afterAdLog.map((l) => l.includes('showRewardedVideo')).lastIndexOf(true);
+  check('ролик за отмену хода показан', lastRewarded >= 0, afterAdLog.join(' | '));
+  check(
+    'после ролика геймплей возобновлён',
+    afterAdLog.slice(lastRewarded).some((l) => l.includes('GameplayAPI.start')),
+    afterAdLog.slice(lastRewarded).join(' | ')
+  );
+} else {
+  check('кнопка отмены хода доступна после ходов', false);
+}
 
 // --- Полное прохождение уровня, победа и фулскрин --------------------------
 phase('прохождение уровня и реклама');

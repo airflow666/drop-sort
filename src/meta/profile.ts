@@ -16,6 +16,7 @@
  */
 
 import type { BoardSnapshot } from '../core';
+import { addDays, dayKey, daysBetween, now } from '../platform/clock';
 import {
   ALL_FIGURINES,
   currentSeasonId,
@@ -139,6 +140,19 @@ interface SaveShape {
   resume: ResumeState | null;
 }
 
+/**
+ * Пауза перед отложенной записью.
+ *
+ * Четыре секунды, а не две с половиной: площадка принимает не больше ста
+ * обращений `setData` за пять минут, и на прежнем интервале непрерывно
+ * меняющийся профиль упирался в лимит (120 записей за то же окно) — вместе с
+ * внеплановыми записями после покупок и побед отказы начинались бы на ровном
+ * месте. Четыре секунды дают 75 записей за окно и запас на всё остальное.
+ */
+const SAVE_DEBOUNCE_MS = 4000;
+/** Пауза перед повтором после неудачной записи. */
+const SAVE_RETRY_MS = 15_000;
+
 const MAX_FREE_BLITZ = 2;
 export const BLITZ_REFILL_MS = 15 * 60 * 1000;
 export const BLIND_BOX_COST = 120;
@@ -173,26 +187,18 @@ export function streakReward(day: number): number {
   return STREAK_REWARDS[Math.min(day, STREAK_REWARDS.length) - 1] ?? STREAK_REWARDS[0];
 }
 
+/**
+ * Сегодняшний день по часам игры (серверное время площадки, UTC).
+ *
+ * Раньше здесь стояла местная дата устройства — «день стрика — это день
+ * игрока». От неё пришлось отказаться: и сама дата, и часовой пояс задаются на
+ * устройстве, то есть вся календарная мета — награда за вход, пропуск, вызов
+ * дня — переводилась стрелками. Заодно ушло расхождение с номером дня для
+ * вызова (он всегда считался по UTC): в Москве между полуночью и тремя часами
+ * один и тот же уровень дня засчитывался дважды.
+ */
 function today(): string {
-  // Локальная дата, а не UTC: «день» для стрика — это день игрока.
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-function daysBetween(a: string, b: string): number {
-  const pa = Date.parse(`${a}T00:00:00`);
-  const pb = Date.parse(`${b}T00:00:00`);
-  if (Number.isNaN(pa) || Number.isNaN(pb)) return 99;
-  return Math.round((pb - pa) / 86_400_000);
+  return dayKey();
 }
 
 function defaults(): SaveShape {
@@ -236,6 +242,14 @@ export class Profile {
   private data: SaveShape = defaults();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
+  /**
+   * Сохранение прочитано. До этого момента `data` — заводские значения, и
+   * записывать их нельзя ни при каких обстоятельствах: игра успевает получить
+   * от площадки паузу (стартовая реклама) раньше, чем ответ `getData`, а
+   * обработчик паузы сбрасывает профиль на сервер. Без этого флага возвращение
+   * во вкладку на медленной сети затирало бы весь прогресс игрока пустышкой.
+   */
+  private loaded = false;
 
   /** Сезон сменился с прошлого запуска — интерфейс покажет анонс новой серии. */
   seasonRolledOver = false;
@@ -247,6 +261,7 @@ export class Profile {
   async load(): Promise<void> {
     const raw = await this.platform.getData();
     this.data = this.migrate(raw);
+    this.loaded = true;
 
     const season = currentSeasonId();
     if (this.data.seenSeason !== season) {
@@ -374,13 +389,13 @@ export class Profile {
   // --- Запись -------------------------------------------------------------
 
   /** Отложенная запись: копит мелкие изменения. */
-  private touch(): void {
+  private touch(delay = SAVE_DEBOUNCE_MS): void {
     this.dirty = true;
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       void this.flush(false);
-    }, 2500);
+    }, delay);
   }
 
   /**
@@ -391,6 +406,7 @@ export class Profile {
    * до `consumePurchase` — см. `App.grantAndConsume`.
    */
   async flush(force = true): Promise<boolean> {
+    if (!this.loaded) return false;
     if (!this.dirty && !force) return true;
     this.dirty = false;
     if (this.saveTimer) {
@@ -401,8 +417,10 @@ export class Profile {
       this.data as unknown as Record<string, unknown>,
       force
     );
-    // Не дошло — данные всё ещё грязные, и следующий touch() попробует снова.
-    if (!saved) this.dirty = true;
+    // Не дошло — данные всё ещё грязные. Повтор назначаем сами, а не ждём
+    // следующего изменения: игрок, закрывший вкладку сразу после победы,
+    // иначе потерял бы уровень из-за одного отвалившегося запроса.
+    if (!saved) this.touch(SAVE_RETRY_MS);
     return saved;
   }
 
@@ -594,12 +612,14 @@ export class Profile {
       this.data.blitzRefillAt = 0;
       return;
     }
-    const now = Date.now();
+    // Серверное время: на часах устройства таймер восстановления
+    // перематывался бы на пятнадцать минут вперёд одним переводом стрелок.
+    const ts = now();
     if (this.data.blitzRefillAt === 0) {
-      this.data.blitzRefillAt = now + BLITZ_REFILL_MS;
+      this.data.blitzRefillAt = ts + BLITZ_REFILL_MS;
       return;
     }
-    while (this.data.blitzAttempts < MAX_FREE_BLITZ && now >= this.data.blitzRefillAt) {
+    while (this.data.blitzAttempts < MAX_FREE_BLITZ && ts >= this.data.blitzRefillAt) {
       this.data.blitzAttempts += 1;
       this.data.blitzRefillAt += BLITZ_REFILL_MS;
       this.dirty = true;
@@ -616,7 +636,7 @@ export class Profile {
   get blitzRefillIn(): number {
     this.refillBlitzAttempts();
     if (this.data.blitzAttempts >= MAX_FREE_BLITZ) return 0;
-    return Math.max(0, this.data.blitzRefillAt - Date.now());
+    return Math.max(0, this.data.blitzRefillAt - now());
   }
 
   consumeBlitzAttempt(): boolean {
@@ -625,7 +645,7 @@ export class Profile {
     if (this.data.blitzAttempts === MAX_FREE_BLITZ) {
       // Отсчёт восстановления запускается с момента траты последней полной
       // попытки, а не с нуля: иначе таймер стоял бы, пока игрок не истратит всё.
-      this.data.blitzRefillAt = Date.now() + BLITZ_REFILL_MS;
+      this.data.blitzRefillAt = now() + BLITZ_REFILL_MS;
     }
     this.data.blitzAttempts -= 1;
     void this.flush();

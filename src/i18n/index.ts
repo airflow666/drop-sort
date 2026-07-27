@@ -193,6 +193,11 @@ const RU = {
   'resume.note': 'Незаконченная витрина сохранилась с прошлого раза.',
   'resume.keep': 'Продолжить',
   'resume.fresh': 'Начать заново',
+  // Диалог по кнопке «Назад» на пульте телевизора: платформа требует спросить
+  // подтверждение, а не закрывать игру молча.
+  'exit.title': 'Выйти из игры?',
+  'exit.text': 'Прогресс сохранён — вернётесь на том же месте.',
+  'exit.confirm': 'Выйти',
 
   // ─── Гайд ───────────────────────────────────────────────────────────────
   'tutorial.step1.title': 'Берём фигурку',
@@ -499,6 +504,9 @@ const EN: Record<Key, string> = {
   'resume.note': 'An unfinished case was saved from last time.',
   'resume.keep': 'Resume',
   'resume.fresh': 'Start over',
+  'exit.title': 'Leave the game?',
+  'exit.text': 'Your progress is saved — you will pick up right here.',
+  'exit.confirm': 'Leave',
 
   'tutorial.step1.title': 'Pick a figure up',
   'tutorial.step1.text': 'A tap on a case lifts its top figure. Tap it again to put it back.',

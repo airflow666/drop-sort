@@ -25,6 +25,7 @@
  */
 
 import type { LevelSpec } from '../core';
+import { now as clockNow } from '../platform/clock';
 import packs from './packs.json';
 
 interface RawLevel {
@@ -215,7 +216,7 @@ export function campaignLevel(levelNumber: number): LevelSpec {
 }
 
 /** Номер дня с эпохи — общий для всех игроков в один и тот же календарный день. */
-export function dayIndex(now = Date.now()): number {
+export function dayIndex(now = clockNow()): number {
   return Math.floor(now / 86_400_000);
 }
 
@@ -225,7 +226,7 @@ export function dayIndex(now = Date.now()): number {
  * независимо от часового пояса, а виды раздаются от того же номера дня — значит
  * и выглядит он у всех одинаково.
  */
-export function dailyLevel(now = Date.now()): LevelSpec {
+export function dailyLevel(now = clockNow()): LevelSpec {
   const pack = DATA.packs.daily;
   const day = dayIndex(now);
   return toSpec(pack[day % pack.length], `d-${day}`, day * 104729 + 7);

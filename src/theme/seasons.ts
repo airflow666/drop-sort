@@ -32,6 +32,7 @@ import { colorway, type Colorway, type ColorwayOptions } from './color';
 import type { FigurineOptions, Finish, Material } from './figurines';
 import { SEASON_SHAPES, shapeName, type ShapeId } from './shapes';
 import { t, type Key } from '../i18n';
+import { now as clockNow } from '../platform/clock';
 
 export type Rarity = 'common' | 'rare' | 'legendary';
 
@@ -372,14 +373,14 @@ export function figurineLook(fig: FigurineDef, glow = true): FigurineOptions {
 export const SEASON_START = Date.UTC(2026, 6, 27); // 27 июля 2026, понедельник
 export const SEASON_LENGTH_DAYS = 28;
 
-export function currentSeasonId(now = Date.now()): number {
+export function currentSeasonId(now = clockNow()): number {
   const days = Math.floor((now - SEASON_START) / 86_400_000);
   if (days < 0) return 1;
   return (Math.floor(days / SEASON_LENGTH_DAYS) % SEASONS.length) + 1;
 }
 
 /** Сколько дней осталось до конца текущего сезона — для таймера в интерфейсе. */
-export function seasonDaysLeft(now = Date.now()): number {
+export function seasonDaysLeft(now = clockNow()): number {
   const days = Math.floor((now - SEASON_START) / 86_400_000);
   if (days < 0) return SEASON_LENGTH_DAYS;
   return SEASON_LENGTH_DAYS - (days % SEASON_LENGTH_DAYS);
