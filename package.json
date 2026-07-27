@@ -8,12 +8,12 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "levels": "python3 tools/generate_levels.py",
+    "levels": "node tools/py.mjs tools/generate_levels.py",
     "test": "npm run typecheck && npm run test:core && npm run test:levels",
     "test:core": "tsx test/core.test.ts",
-    "test:levels": "python3 tools/test_generator.py",
+    "test:levels": "node tools/py.mjs tools/test_generator.py",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
-    "zip": "npm run build && rm -f vitrinka.zip && cd dist && zip -qr ../vitrinka.zip . && cd .. && unzip -l vitrinka.zip"
+    "zip": "npm run build && node tools/pack.mjs"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"

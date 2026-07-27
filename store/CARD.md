@@ -187,7 +187,7 @@ npm i -D playwright-core --no-save     # ставится временно, в �
 npx tsx store/make-assets.ts           # иконка 512×512 и обложка 800×470
 
 npm run build                          # снимки делаются со СОБРАННОЙ игры
-python3 -m http.server 5200 --directory dist &
+python3 -m http.server 5200 --directory dist &   # в Windows: python -m http.server 5200 -d dist
 npx tsx store/make-screenshots.ts      # по 5 экранов в двух ориентациях
 
 npm uninstall playwright-core          # вернуть зависимости как были
