@@ -6,7 +6,8 @@
  * после первой же правки палитры, и в витрине оказывается игра, которая
  * выглядит иначе, чем на скриншотах.
  *
- * Требования консоли: иконка 512×512, обложка 800×470.
+ * Требования консоли: иконка 512×512, обложка 800×470. Обложка снимается на
+ * каждый язык витрины — это единственный материал карточки с текстом.
  *
  * Запуск:
  *   npm i -D playwright-core --no-save
@@ -126,31 +127,91 @@ mkdirSync(OUT, { recursive: true });
 // ─── Обложка 800×470 ───────────────────────────────────────────────────────
 // Слева название и суть, справа — ряд витрин. Обложка обязана объяснить
 // механику без слов: видно, что фигурки сортируются по полкам.
-{
+//
+// Обложка — единственный материал карточки с текстом, поэтому она снимается на
+// каждый язык, и язык попадает в имя файла. Иконке локаль не нужна: текста на
+// ней нет намеренно (в списке игр она и так подписана).
+
+/**
+ * Тексты обложки.
+ *
+ * Название специально одно и то же слово в двух начертаниях: игрок, увидевший
+ * обложку в одной локали и игру в другой, узнаёт её сразу.
+ */
+const COVERS = [
+  {
+    tag: 'ru',
+    brand: 'ВИТРИНКА',
+    lead: 'Сортируй фигурки<br>по витринам',
+    sub: 'Собирай коллекцию<br>из блайнд-боксов',
+  },
+  {
+    tag: 'en',
+    brand: 'VITRINKA',
+    lead: 'Sort figures<br>into display cases',
+    sub: 'Build a collection<br>from blind boxes',
+  },
+];
+
+/** Зазор между колонкой текста и витринами, ниже которого макет считается сломанным. */
+const COPY_ART_GAP = 12;
+
+const coverProblems: string[] = [];
+
+for (const cover of COVERS) {
   const body = `
     <div class="floor"></div>
-    <div style="position:absolute;left:44px;top:50%;transform:translateY(-50%);z-index:2;
-        max-width:372px">
+    <!-- width:max-content, а не просто max-width: иначе блок всегда меряется в
+         полную ширину колонки, и проверка на наезд текста на витрины ничего бы
+         не ловила. -->
+    <div id="copy" style="position:absolute;left:44px;top:50%;transform:translateY(-50%);
+        z-index:2;width:max-content;max-width:372px">
       <!-- 44 пикселя, а не 56: восемь букв с трекингом .16em при 56 не влезали
            в колонку, и «А» уезжала за край обложки. -->
-      <div class="brand" style="font-size:44px;white-space:nowrap">ВИТРИНКА</div>
+      <div class="brand" style="font-size:44px;white-space:nowrap">${cover.brand}</div>
       <div style="color:#fff;opacity:.84;font-size:18px;font-weight:700;letter-spacing:.03em;
           line-height:1.35;margin-top:10px">
-        Сортируй фигурки<br>по витринам
+        ${cover.lead}
       </div>
       <div style="color:#fff;opacity:.5;font-size:14px;margin-top:8px;line-height:1.4">
-        Собирай коллекцию<br>из блайнд-боксов
+        ${cover.sub}
       </div>
     </div>
-    <div class="shelves" style="--gap:9px;position:absolute;right:30px;bottom:30px">
+    <div class="shelves" id="art" style="--gap:9px;position:absolute;right:30px;bottom:30px">
       ${shelf(1, 54, 4, 6)}${shelf(0, 54, 4, 6)}${shelf(5, 54, 2, 6)}${shelf(7, 54, 4, 6)}${shelf(3, 54, 3, 6)}
     </div>`;
   const p = await browser.newPage({ viewport: { width: 800, height: 470 } });
   await p.goto(page(body, '', 800, 470), { waitUntil: 'load' });
   await p.waitForTimeout(320);
-  writeFileSync(`${OUT}/cover-800x470.png`, await p.screenshot());
+
+  // Английские строки длиннее русских на те же слова, и наехать на витрины они
+  // могут молча: картинка отрендерится, просто станет некрасивой. Поэтому
+  // геометрия проверяется, а не осматривается глазами.
+  const box = await p.evaluate(() => {
+    const copy = document.querySelector('#copy')!.getBoundingClientRect();
+    const art = document.querySelector('#art')!.getBoundingClientRect();
+    return { copyLeft: copy.left, copyRight: copy.right, artLeft: art.left };
+  });
+  const gap = box.artLeft - box.copyRight;
+  if (gap < COPY_ART_GAP) {
+    coverProblems.push(
+      `${cover.tag}: текст подходит к витринам на ${gap.toFixed(0)} px, нужно ${COPY_ART_GAP}`
+    );
+  }
+  if (box.copyLeft < 0) {
+    coverProblems.push(`${cover.tag}: текст уехал за левый край на ${(-box.copyLeft).toFixed(0)} px`);
+  }
+
+  const file = `${OUT}/cover-800x470-${cover.tag}.png`;
+  writeFileSync(file, await p.screenshot());
   await p.close();
-  console.log(`${OUT}/cover-800x470.png 800×470`);
+  console.log(`${file} 800×470, зазор до витрин ${gap.toFixed(0)} px`);
 }
 
 await browser.close();
+
+if (coverProblems.length) {
+  console.log('\nПроблемы:');
+  for (const problem of coverProblems) console.log(`  ${problem}`);
+  process.exitCode = 1;
+}
