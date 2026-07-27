@@ -1,9 +1,9 @@
 {
-  "name": "drop-sort",
+  "name": "vitrinka",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "DROP — пазл-сортировка коллекционных фигурок для Яндекс Игр",
+  "description": "ВИТРИНКА — пазл-сортировка коллекционных фигурок для Яндекс Игр",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -13,7 +13,7 @@
     "test:core": "tsx test/core.test.ts",
     "test:levels": "python3 tools/test_generator.py",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
-    "zip": "npm run build && rm -f drop-sort.zip && cd dist && zip -qr ../drop-sort.zip . && cd .. && unzip -l drop-sort.zip"
+    "zip": "npm run build && rm -f vitrinka.zip && cd dist && zip -qr ../vitrinka.zip . && cd .. && unzip -l vitrinka.zip"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"

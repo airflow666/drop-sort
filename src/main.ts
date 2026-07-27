@@ -11,6 +11,7 @@
 import './ui/styles.css';
 import { App } from './app';
 import { initPlatform } from './platform/sdk';
+import { setLanguage, t } from './i18n';
 
 async function boot(): Promise<void> {
   const root = document.getElementById('app');
@@ -27,6 +28,9 @@ async function boot(): Promise<void> {
 
 boot().catch((error) => {
   console.error('игра не запустилась', error);
+  // Язык мог не успеть прийти от площадки — падение возможно и до её ответа.
+  // Тогда остаётся язык браузера: показать сообщение об ошибке молча нельзя.
+  setLanguage(document.documentElement.lang || navigator.language);
   // Показываем причину, а не бесконечный загрузчик: молчаливо висящий
   // прелоадер — худший из возможных исходов и для игрока, и для модерации.
   const boot = document.getElementById('boot');
@@ -35,8 +39,9 @@ boot().catch((error) => {
     boot.innerHTML =
       '<div style="text-align:center;font-family:-apple-system,BlinkMacSystemFont,' +
       "'Segoe UI',Roboto,sans-serif;color:#fff;padding:24px\">" +
-      '<div style="font-size:44px;font-weight:900;letter-spacing:.14em;margin-bottom:14px">DROP</div>' +
-      '<div style="opacity:.7;font-size:14px;line-height:1.5">Не удалось загрузить игру.<br>' +
-      'Обновите страницу.</div></div>';
+      '<div style="font-size:40px;font-weight:900;letter-spacing:.14em;margin-bottom:14px">' +
+      'ВИТРИНКА</div>' +
+      `<div style="opacity:.7;font-size:14px;line-height:1.5">${t('app.bootFailed')}<br>` +
+      `${t('app.bootRetry')}</div></div>`;
   }
 });

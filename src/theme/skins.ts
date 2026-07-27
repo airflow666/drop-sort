@@ -20,6 +20,7 @@
  */
 
 import type { SeasonTheme } from './seasons';
+import { t, type Key } from '../i18n';
 
 /** Конструкция витрины. Реализация — в src/render/shelf.ts. */
 export type ShelfStyle = 'season' | 'brass' | 'arcade' | 'wood' | 'chrome' | 'crystal';
@@ -27,8 +28,12 @@ export type ShelfStyle = 'season' | 'brass' | 'arcade' | 'wood' | 'chrome' | 'cr
 export interface Skin {
   /** Пустая строка — сезонное оформление по умолчанию. */
   id: string;
-  name: string;
-  description: string;
+  /**
+   * Ключ названия и описания в словаре («wood», «brass»). Не готовые строки:
+   * язык приходит от площадки после загрузки модуля. Имя собирают `skinName`
+   * и `skinDescription`.
+   */
+  labelKey: string;
   /** Цена в монетах; null — не продаётся за валюту. */
   coins: number | null;
   /** Идентификатор товара в консоли; null — не продаётся за деньги. */
@@ -48,8 +53,7 @@ export interface Skin {
 export const SKINS: readonly Skin[] = [
   {
     id: '',
-    name: 'Сезонное',
-    description: 'Стеклянный неоновый шкаф. Меняет цвет вместе с серией.',
+    labelKey: 'season',
     coins: null,
     productId: null,
     override: {},
@@ -57,8 +61,7 @@ export const SKINS: readonly Skin[] = [
   },
   {
     id: 'skin_wood',
-    name: 'Ретро-полка',
-    description: 'Тёплое дерево, деревянная планка под каждым ярусом, мягкие углы.',
+    labelKey: 'wood',
     coins: 450,
     productId: null,
     override: {
@@ -72,8 +75,7 @@ export const SKINS: readonly Skin[] = [
   },
   {
     id: 'skin_gold',
-    name: 'Латунь',
-    description: 'Литая рама на заклёпках, гравированный шильдик, янтарный свет.',
+    labelKey: 'brass',
     coins: 800,
     productId: null,
     override: {
@@ -87,8 +89,7 @@ export const SKINS: readonly Skin[] = [
   },
   {
     id: 'skin_arcade',
-    name: 'Аркада',
-    description: 'Игровой автомат: маркиза с лампами, боковые неонки, прямые углы.',
+    labelKey: 'arcade',
     coins: 1200,
     productId: null,
     override: {
@@ -102,8 +103,7 @@ export const SKINS: readonly Skin[] = [
   },
   {
     id: 'skin_crystal',
-    name: 'Кристалл',
-    description: 'Срезанные углы, ледяные грани и холодная преломлённая подсветка.',
+    labelKey: 'crystal',
     coins: 1800,
     productId: null,
     override: {
@@ -117,8 +117,7 @@ export const SKINS: readonly Skin[] = [
   },
   {
     id: 'skin_chrome',
-    name: 'Хром',
-    description: 'Полированный металл: фаска с бликом по кромке, холодное стекло.',
+    labelKey: 'chrome',
     coins: null,
     productId: 'skin_chrome',
     override: {
@@ -134,6 +133,14 @@ export const SKINS: readonly Skin[] = [
 
 export function skinById(id: string): Skin {
   return SKINS.find((s) => s.id === id) ?? SKINS[0];
+}
+
+export function skinName(skin: Skin): string {
+  return t(`skin.${skin.labelKey}.name` as Key);
+}
+
+export function skinDescription(skin: Skin): string {
+  return t(`skin.${skin.labelKey}.note` as Key);
 }
 
 /**

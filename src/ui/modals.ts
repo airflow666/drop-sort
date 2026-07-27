@@ -11,12 +11,16 @@
 import { figurineSvg } from '../theme/figurines';
 import {
   figurineLook,
-  FINISH_LABEL,
-  RARITY_LABEL,
+  figurineName,
+  finishLabel,
+  rarityLabel,
+  seasonName,
+  seasonTagline,
   type FigurineDef,
   type Season,
 } from '../theme/seasons';
-import { add, button, clear, el, formatClock, formatNumber, mountOverlay, plural } from './dom';
+import { add, button, clear, el, formatClock, mountOverlay } from './dom';
+import { formatNumber, pluralize, t } from '../i18n';
 import { STREAK_REWARDS, streakReward } from '../meta/profile';
 
 function card(title: string, subtitle?: string): { root: HTMLElement; actions: HTMLElement } {
@@ -63,11 +67,12 @@ export function showVictory(
 
     const summary = el('p', 'muted');
     const perfect = opts.minMoves > 0 && opts.moves <= opts.minMoves;
+    const moves = pluralize(opts.moves, 'moves');
     summary.textContent = perfect
-      ? `Идеально: ${opts.moves} ${plural(opts.moves, 'ход', 'хода', 'ходов')}`
+      ? t('victory.perfect', { n: opts.moves, moves })
       : opts.minMoves > 0
-        ? `${opts.moves} ${plural(opts.moves, 'ход', 'хода', 'ходов')}, оптимум ${opts.minMoves}`
-        : `${opts.moves} ${plural(opts.moves, 'ход', 'хода', 'ходов')}`;
+        ? t('victory.withOptimum', { n: opts.moves, moves, best: opts.minMoves })
+        : t('victory.plain', { n: opts.moves, moves });
     add(box, summary);
 
     const reward = el('p', 'coins');
@@ -84,14 +89,14 @@ export function showVictory(
     if (opts.canDouble) {
       add(
         actions,
-        button('▶ ×2 к монетам', 'btn btn--rewarded btn--wide', () => pick('double'))
+        button(t('victory.double'), 'btn btn--rewarded btn--wide', () => pick('double'))
       );
     }
     add(
       actions,
       button(opts.nextLabel, 'btn btn--primary btn--wide', () => pick('next')),
-      button('Витрина', 'btn btn--ghost btn--wide btn--sm', () => pick('collection')),
-      button('В меню', 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
+      button(t('victory.collection'), 'btn btn--ghost btn--wide btn--sm', () => pick('collection')),
+      button(t('common.menu'), 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
     );
     add(box, actions);
     close = mountOverlay(root, box);
@@ -119,10 +124,8 @@ export function showDeadlock(
 ): Promise<DeadlockChoice> {
   return new Promise((resolve) => {
     const { root: box, actions } = card(
-      'Ходов больше нет',
-      opts.canExtraShelf
-        ? 'Все витрины заняты. Свободная витрина расшивает любой тупик.'
-        : 'Все витрины заняты. Этот уровень решается — попробуйте другой порядок.'
+      t('deadlock.title'),
+      opts.canExtraShelf ? t('deadlock.canHelp') : t('deadlock.noHelp')
     );
     let close = () => {};
     const pick = (choice: DeadlockChoice) => {
@@ -132,13 +135,13 @@ export function showDeadlock(
     if (opts.canExtraShelf) {
       add(
         actions,
-        button('▶ +1 свободная витрина', 'btn btn--rewarded btn--wide', () => pick('extraShelf'))
+        button(t('deadlock.extraShelf'), 'btn btn--rewarded btn--wide', () => pick('extraShelf'))
       );
     }
     add(
       actions,
-      button('Заново', 'btn btn--ghost btn--wide', () => pick('restart')),
-      button('В меню', 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
+      button(t('common.restart'), 'btn btn--ghost btn--wide', () => pick('restart')),
+      button(t('common.menu'), 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
     );
     add(box, actions);
     close = mountOverlay(root, box);
@@ -165,7 +168,7 @@ export function showBlitzResult(
   }
 ): Promise<BlitzChoice> {
   return new Promise((resolve) => {
-    const { root: box, actions } = card(opts.isRecord ? 'Новый рекорд!' : 'Забег окончен');
+    const { root: box, actions } = card(opts.isRecord ? t('blitz.record') : t('blitz.over'));
 
     // Карточка результата — то, чем хвастаются (план, §2).
     const share = el('div', 'share');
@@ -178,16 +181,18 @@ export function showBlitzResult(
       share,
       el('div', 'share__score', { text: formatNumber(opts.score) }),
       el('div', 'tiny', {
-        text: `${opts.sets} ${plural(opts.sets, 'витрина', 'витрины', 'витрин')} за 60 секунд`,
+        text: t('blitz.summary', { n: opts.sets, shelves: pluralize(opts.sets, 'shelves') }),
       }),
       el('div', 'muted', {
-        text: opts.isRecord ? 'Личный рекорд' : `Рекорд: ${formatNumber(opts.best)}`,
+        text: opts.isRecord
+          ? t('blitz.personalBest')
+          : t('blitz.best', { n: formatNumber(opts.best) }),
       })
     );
     // Место в топе — вторая половина повода поделиться (план, §2): очки без
     // места ни с чем не сравниваются.
     if (opts.rank !== null) {
-      add(share, el('div', 'rarity rarity--rare', { text: `${opts.rank} место за неделю` }));
+      add(share, el('div', 'rarity rarity--rare', { text: t('blitz.rank', { n: opts.rank }) }));
     }
     add(box, share);
 
@@ -201,29 +206,29 @@ export function showBlitzResult(
     if (opts.freeAttempts > 0) {
       add(
         actions,
-        button('Ещё забег', 'btn btn--primary btn--wide', () => pick('retry'))
+        button(t('blitz.again'), 'btn btn--primary btn--wide', () => pick('retry'))
       );
     } else {
       add(
         actions,
-        button('▶ Ещё забег', 'btn btn--rewarded btn--wide', () => pick('retryAd'))
+        button(t('blitz.againAd'), 'btn btn--rewarded btn--wide', () => pick('retryAd'))
       );
       if (opts.refillIn > 0) {
         add(
           actions,
-          el('div', 'tiny', { text: `Бесплатная попытка через ${formatClock(opts.refillIn)}` })
+          el('div', 'tiny', { text: t('blitz.refill', { clock: formatClock(opts.refillIn) }) })
         );
       }
     }
 
-    const shareBtn = button('Поделиться результатом', 'btn btn--ghost btn--wide btn--sm', () => {
+    const shareBtn = button(t('blitz.share'), 'btn btn--ghost btn--wide btn--sm', () => {
       resolve('share');
     });
     add(
       actions,
       shareBtn,
-      button('Лидеры недели', 'btn btn--ghost btn--wide btn--sm', () => pick('leaderboard')),
-      button('В меню', 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
+      button(t('blitz.leaders'), 'btn btn--ghost btn--wide btn--sm', () => pick('leaderboard')),
+      button(t('common.menu'), 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
     );
     add(box, actions);
     close = mountOverlay(root, box);
@@ -238,16 +243,16 @@ export function showDailyResult(
 ): Promise<'leaderboard' | 'menu'> {
   return new Promise((resolve) => {
     const { root: box, actions } = card(
-      'Вызов дня пройден',
-      opts.isRecord ? 'Лучший результат за сегодня — ваш' : undefined
+      t('daily.title'),
+      opts.isRecord ? t('daily.record') : undefined
     );
     add(
       box,
       el('div', 'share__score', { text: String(opts.moves) }),
-      el('div', 'tiny', { text: plural(opts.moves, 'ХОД', 'ХОДА', 'ХОДОВ') })
+      el('div', 'tiny', { text: t('daily.movesCaps') })
     );
     if (opts.best > 0 && !opts.isRecord) {
-      add(box, el('p', 'muted', { text: `Ваш рекорд: ${opts.best}` }));
+      add(box, el('p', 'muted', { text: t('daily.yourBest', { n: opts.best }) }));
     }
     const reward = el('p', 'coins', { text: `+${formatNumber(opts.coins)}` });
     reward.style.marginTop = '12px';
@@ -260,8 +265,8 @@ export function showDailyResult(
     };
     add(
       actions,
-      button('Кто быстрее', 'btn btn--primary btn--wide', () => pick('leaderboard')),
-      button('В меню', 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
+      button(t('daily.leaders'), 'btn btn--primary btn--wide', () => pick('leaderboard')),
+      button(t('common.menu'), 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
     );
     add(box, actions);
     close = mountOverlay(root, box);
@@ -279,7 +284,7 @@ export function showBoxReveal(
   opts: { figurine: FigurineDef; duplicate: boolean; duplicates: number }
 ): Promise<void> {
   return new Promise((resolve) => {
-    const { root: box, actions } = card('Блайнд-бокс');
+    const { root: box, actions } = card(t('box.title'));
 
     const reveal = el('div', 'reveal');
     reveal.innerHTML = figurineSvg(
@@ -293,7 +298,7 @@ export function showBoxReveal(
     add(
       tags,
       el('span', `rarity rarity--${opts.figurine.rarity}`, {
-        text: RARITY_LABEL[opts.figurine.rarity],
+        text: rarityLabel(opts.figurine.rarity),
       })
     );
     // Отделка — то, ради чего чейз и открывают: холо, блёстки, прозрачный
@@ -301,24 +306,22 @@ export function showBoxReveal(
     if (opts.figurine.finish) {
       add(
         tags,
-        el('span', 'rarity rarity--finish', { text: FINISH_LABEL[opts.figurine.finish] })
+        el('span', 'rarity rarity--finish', { text: finishLabel(opts.figurine.finish) })
       );
     }
-    add(box, el('h3', 'h2', { text: opts.figurine.name }), tags);
+    add(box, el('h3', 'h2', { text: figurineName(opts.figurine) }), tags);
 
     if (opts.duplicate) {
       add(
         box,
-        el('p', 'muted', {
-          text: `Уже есть — в обмен. Дубликатов: ${opts.duplicates}`,
-        })
+        el('p', 'muted', { text: t('box.duplicate', { n: opts.duplicates }) })
       );
     }
 
     let close = () => {};
     add(
       actions,
-      button('На витрину', 'btn btn--primary btn--wide', () => {
+      button(t('box.toShelf'), 'btn btn--primary btn--wide', () => {
         close();
         resolve();
       })
@@ -335,10 +338,7 @@ export function showStreak(
   opts: { day: number; coins: number }
 ): Promise<void> {
   return new Promise((resolve) => {
-    const { root: box, actions } = card(
-      'Вы вернулись',
-      `День ${opts.day} подряд. Награда растёт до седьмого дня.`
-    );
+    const { root: box, actions } = card(t('streak.title'), t('streak.note', { n: opts.day }));
 
     const calendar = el('div', 'streak');
     for (let i = 1; i <= STREAK_REWARDS.length; i++) {
@@ -348,7 +348,11 @@ export function showStreak(
       const cycleDay = ((opts.day - 1) % STREAK_REWARDS.length) + 1;
       if (i < cycleDay) day.classList.add('streak__day--done');
       if (i === cycleDay) day.classList.add('streak__day--today', 'streak__day--done');
-      add(day, el('b', undefined, { text: String(streakReward(i)) }), el('span', undefined, { text: `дн. ${i}` }));
+      add(
+        day,
+        el('b', undefined, { text: String(streakReward(i)) }),
+        el('span', undefined, { text: t('streak.day', { n: i }) })
+      );
       calendar.appendChild(day);
     }
     add(box, calendar);
@@ -360,7 +364,7 @@ export function showStreak(
     let close = () => {};
     add(
       actions,
-      button('Забрать', 'btn btn--primary btn--wide', () => {
+      button(t('streak.claim'), 'btn btn--primary btn--wide', () => {
         close();
         resolve();
       })
@@ -374,8 +378,11 @@ export function showStreak(
 
 export function showSeasonAnnounce(root: HTMLElement, season: Season, daysLeft: number): Promise<void> {
   return new Promise((resolve) => {
-    const { root: box, actions } = card(`Сезон ${season.id}`, season.tagline);
-    add(box, el('h3', 'brand', { text: season.name }));
+    const { root: box, actions } = card(
+      t('season.title', { n: season.id }),
+      seasonTagline(season.id)
+    );
+    add(box, el('h3', 'brand', { text: seasonName(season.id) }));
 
     // Превью серии: шесть силуэтов достаточно, чтобы показать новую палитру,
     // и не превращают диалог в простыню.
@@ -390,14 +397,14 @@ export function showSeasonAnnounce(root: HTMLElement, season: Season, daysLeft: 
     add(
       box,
       el('p', 'muted', {
-        text: `${daysLeft} ${plural(daysLeft, 'день', 'дня', 'дней')} до конца сезона`,
+        text: t('season.daysLeft', { n: daysLeft, days: pluralize(daysLeft, 'days') }),
       })
     );
 
     let close = () => {};
     add(
       actions,
-      button('Собирать', 'btn btn--primary btn--wide', () => {
+      button(t('season.collect'), 'btn btn--primary btn--wide', () => {
         close();
         resolve();
       })
@@ -413,7 +420,7 @@ export type PauseChoice = 'resume' | 'restart' | 'menu';
 
 export function showPause(root: HTMLElement): Promise<PauseChoice> {
   return new Promise((resolve) => {
-    const { root: box, actions } = card('Пауза');
+    const { root: box, actions } = card(t('pause.title'));
     let close = () => {};
     const pick = (choice: PauseChoice) => {
       close();
@@ -421,9 +428,9 @@ export function showPause(root: HTMLElement): Promise<PauseChoice> {
     };
     add(
       actions,
-      button('Продолжить', 'btn btn--primary btn--wide', () => pick('resume')),
-      button('Начать заново', 'btn btn--ghost btn--wide btn--sm', () => pick('restart')),
-      button('В меню', 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
+      button(t('common.resume'), 'btn btn--primary btn--wide', () => pick('resume')),
+      button(t('pause.restart'), 'btn btn--ghost btn--wide btn--sm', () => pick('restart')),
+      button(t('common.menu'), 'btn btn--ghost btn--wide btn--sm', () => pick('menu'))
     );
     add(box, actions);
     close = mountOverlay(root, box, { dismissible: true, onDismiss: () => resolve('resume') });
@@ -451,8 +458,8 @@ export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise
 
   const steps: Array<{ title: string; text: string; art: () => HTMLElement }> = [
     {
-      title: 'Берём фигурку',
-      text: 'Тап по витрине поднимает верхнюю фигурку. Тап по ней же — кладёт обратно.',
+      title: t('tutorial.step1.title'),
+      text: t('tutorial.step1.text'),
       // Поднятая фигурка нарисована НАД витриной и убрана из стопки: если
       // оставить её и там, и там, картинка противоречит подписи.
       art: () =>
@@ -462,8 +469,8 @@ export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise
         ]),
     },
     {
-      title: 'Ставим к своим',
-      text: 'Второй тап переносит её в пустую витрину или на такую же фигурку. По одной за раз.',
+      title: t('tutorial.step2.title'),
+      text: t('tutorial.step2.text'),
       art: () =>
         tutorialScene([
           { stack: [b], state: 'selected', lifted: a, arrow: true },
@@ -471,8 +478,8 @@ export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise
         ]),
     },
     {
-      title: 'Витрина закрывается',
-      text: 'Когда витрина заполнена одним видом целиком, её запирает стекло. Это готовый сет.',
+      title: t('tutorial.step3.title'),
+      text: t('tutorial.step3.text'),
       art: () =>
         tutorialScene([
           { stack: [a, a, a, a], state: 'closed' },
@@ -480,8 +487,8 @@ export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise
         ]),
     },
     {
-      title: 'Цель',
-      text: 'Закрыть все витрины. Чем меньше ходов — тем больше звёзд и монет.',
+      title: t('tutorial.step4.title'),
+      text: t('tutorial.step4.text'),
       art: () =>
         tutorialScene([
           { stack: [a, a, a, a], state: 'closed' },
@@ -497,8 +504,8 @@ export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise
     const art = el('div', 'tut__art');
     const dots = el('div', 'tut__dots');
     const actions = el('div', 'card__actions');
-    const next = button('Дальше', 'btn btn--primary btn--wide', () => go(step + 1));
-    const skip = button('Пропустить', 'btn btn--ghost btn--wide btn--sm', () => finish());
+    const next = button(t('tutorial.next'), 'btn btn--primary btn--wide', () => go(step + 1));
+    const skip = button(t('tutorial.skip'), 'btn btn--ghost btn--wide btn--sm', () => finish());
 
     add(box, title, text, art, dots, actions);
     add(actions, next, skip);
@@ -527,7 +534,7 @@ export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise
         dots.appendChild(el('i', i === step ? 'is-on' : undefined));
       }
       const last = step === steps.length - 1;
-      next.innerHTML = last ? 'Играть' : 'Дальше';
+      next.innerHTML = last ? t('tutorial.play') : t('tutorial.next');
       skip.style.display = last ? 'none' : '';
     };
 
@@ -585,7 +592,7 @@ export function showConfirm(
         close();
         resolve(true);
       }),
-      button(opts.cancel ?? 'Отмена', 'btn btn--ghost btn--wide btn--sm', () => {
+      button(opts.cancel ?? t('common.cancel'), 'btn btn--ghost btn--wide btn--sm', () => {
         close();
         resolve(false);
       })

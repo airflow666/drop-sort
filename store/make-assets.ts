@@ -130,8 +130,10 @@ mkdirSync(OUT, { recursive: true });
   const body = `
     <div class="floor"></div>
     <div style="position:absolute;left:44px;top:50%;transform:translateY(-50%);z-index:2;
-        max-width:330px">
-      <div class="brand" style="font-size:78px">DROP</div>
+        max-width:372px">
+      <!-- 44 пикселя, а не 56: восемь букв с трекингом .16em при 56 не влезали
+           в колонку, и «А» уезжала за край обложки. -->
+      <div class="brand" style="font-size:44px;white-space:nowrap">ВИТРИНКА</div>
       <div style="color:#fff;opacity:.84;font-size:18px;font-weight:700;letter-spacing:.03em;
           line-height:1.35;margin-top:10px">
         Сортируй фигурки<br>по витринам

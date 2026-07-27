@@ -27,11 +27,13 @@ import { Tweens } from './render/tween';
 import {
   figurineByKey,
   figurineLook,
+  figurineName,
   seasonById,
   seasonDaysLeft,
   type FigurineDef,
   type SeasonTheme,
 } from './theme/seasons';
+import { brand, setLanguage, t } from './i18n';
 import { skinById, themeWithSkin } from './theme/skins';
 import { applyThemeVars, el } from './ui/dom';
 import { Hud, type HudState } from './ui/hud';
@@ -145,6 +147,17 @@ export class App {
   // --- Запуск -------------------------------------------------------------
 
   async start(root: HTMLElement): Promise<void> {
+    // Язык — самое первое: он приходит от площадки (§2.14), и всё, что строится
+    // ниже, читает словарь. Поставить его позже значит собрать часть
+    // интерфейса на языке по умолчанию.
+    setLanguage(this.platform.lang);
+    document.title = t('app.title');
+    // Загрузчик написан латиницей: он рисуется до ответа площадки. Язык уже
+    // известен — приводим надпись к локали, чтобы игрок не увидел смену
+    // начертания между экраном загрузки и меню.
+    const bootLogo = document.querySelector('#boot .logo');
+    if (bootLogo) bootLogo.textContent = brand();
+
     await this.profile.load();
     this.audio.setMuted(this.profile.settings.muted);
     this.haptics.setEnabled(this.profile.settings.haptics);
@@ -306,7 +319,7 @@ export class App {
     // Залипание: подсвечиваем подсказку, а не навязываем её.
     if (!this.idleHintShown && Date.now() - this.lastInputAt > IDLE_HINT_MS) {
       this.idleHintShown = true;
-      this.hud?.toast('Застряли? Подсказка покажет ход');
+      this.hud?.toast(t('toast.idleHint'));
     }
 
     this.updateHud();
@@ -320,8 +333,8 @@ export class App {
         session.mode === 'campaign'
           ? String(session.levelNumber)
           : session.mode === 'blitz'
-            ? 'блиц'
-            : 'вызов',
+            ? t('hud.blitz')
+            : t('hud.daily'),
       moves: session.board.moves,
       minMoves: session.mode === 'blitz' ? 0 : session.spec.minMoves,
       coins: this.profile.coins,
@@ -394,15 +407,15 @@ export class App {
       const standard = seasonById(this.profile.seasonId).playable[fig.slot];
       // Стандартная фигурка серии уже стоит — сбрасывать нечего.
       if (standard.key === key) {
-        this.toast('Уже на поле');
+        this.toast(t('toast.alreadyInPlay'));
         return;
       }
       this.profile.unequip(fig.slot);
-      this.toast(`${standard.name}: как в серии`);
+      this.toast(t('toast.asInSeries', { name: figurineName(standard) }));
     } else if (!this.profile.equip(key)) {
       return;
     } else {
-      this.toast(`${fig.name} — на поле`);
+      this.toast(t('toast.nowInPlay', { name: figurineName(fig) }));
     }
 
     this.audio.tap();
@@ -464,18 +477,18 @@ export class App {
   private async openBox(payment: 'coins' | 'ad' | 'duplicates'): Promise<void> {
     if (payment === 'coins') {
       if (!this.profile.spendCoins(BLIND_BOX_COST)) {
-        this.toast('Не хватает монет');
+        this.toast(t('toast.noCoins'));
         return;
       }
     } else if (payment === 'duplicates') {
       if (!this.profile.exchangeDuplicates()) {
-        this.toast('Мало дубликатов');
+        this.toast(t('toast.noDuplicates'));
         return;
       }
     } else {
       const rewarded = await this.ads.rewarded('blindBox');
       if (!rewarded) {
-        this.toast('Ролик не засчитан');
+        this.toast(t('toast.adNotCounted'));
         return;
       }
     }
@@ -501,7 +514,7 @@ export class App {
     // Собрана вся серия — финальная награда сезона (план, §5).
     if (this.profile.isSeasonComplete(this.profile.seasonId)) {
       this.profile.addCoins(500);
-      this.toast('Серия собрана целиком! +500');
+      this.toast(t('toast.seasonComplete'));
     }
     this.showCollection();
   }
@@ -511,7 +524,7 @@ export class App {
   private async buy(productId: string): Promise<void> {
     const token = await this.platform.purchase(productId);
     if (!token) {
-      this.toast('Покупка не завершена');
+      this.toast(t('toast.purchaseFailed'));
       return;
     }
     this.applyPurchase(productId);
@@ -527,7 +540,7 @@ export class App {
     const skin = skinById(id);
     if (skin.coins === null) return;
     if (!this.profile.spendCoins(skin.coins)) {
-      this.toast('Не хватает монет');
+      this.toast(t('toast.noCoins'));
       return;
     }
     this.profile.unlockSkin(id);
@@ -564,25 +577,25 @@ export class App {
     switch (productId) {
       case 'hints_10':
         this.profile.addHints(10);
-        this.toast('+10 подсказок');
+        this.toast(t('toast.hintsAdded'));
         break;
       case 'no_ads':
         this.profile.enableNoAds();
         void this.platform.hideBanner();
-        this.toast('Реклама отключена');
+        this.toast(t('toast.adsDisabled'));
         break;
       case 'week_pass':
         // Пропуск начисляет награду сразу и далее по календарю входов —
         // серверной части нет, поэтому механика опирается на стрик.
         this.profile.addCoins(300);
         this.profile.addHints(5);
-        this.toast('Пропуск активирован');
+        this.toast(t('toast.passActive'));
         break;
       default:
         if (productId.startsWith('skin_')) {
           this.profile.unlockSkin(productId);
           this.setSkin(productId);
-          this.toast('Скин применён');
+          this.toast(t('toast.skinApplied'));
         }
     }
   }
@@ -634,10 +647,10 @@ export class App {
     const resume = this.profile.resume;
     if (resume?.mode === 'campaign') {
       const keep = await showConfirm(this.uiRoot, {
-        title: 'Продолжить партию?',
-        text: 'Незаконченная витрина сохранилась с прошлого раза.',
-        confirm: 'Продолжить',
-        cancel: 'Начать заново',
+        title: t('resume.title'),
+        text: t('resume.note'),
+        confirm: t('resume.keep'),
+        cancel: t('resume.fresh'),
       });
       if (keep) {
         const board = Board.restore(resume.board);
@@ -677,14 +690,14 @@ export class App {
     await this.ensureTutorial();
     if (!this.profile.consumeBlitzAttempt()) {
       const watch = await showConfirm(this.uiRoot, {
-        title: 'Попытки закончились',
-        text: 'Бесплатная попытка восстанавливается каждые 15 минут.',
-        confirm: '▶ Смотреть ролик',
+        title: t('blitz.noAttempts'),
+        text: t('blitz.noAttemptsNote'),
+        confirm: t('blitz.watchAd'),
       });
       if (!watch) return;
       const rewarded = await this.ads.rewarded('blitzRetry');
       if (!rewarded) {
-        this.toast('Ролик не засчитан');
+        this.toast(t('toast.adNotCounted'));
         return;
       }
       this.profile.grantBlitzAttempt();
@@ -890,7 +903,7 @@ export class App {
 
     const hint = findHint(session.board);
     if (!hint) {
-      this.toast(session.board.isDeadlock ? 'Ходов не осталось' : 'Уже собрано');
+      this.toast(session.board.isDeadlock ? t('toast.noMoves') : t('toast.alreadySolved'));
       // Подсказку не нашли — заряд возвращаем: списывать за пустой ответ нечестно.
       this.profile.addHints(1);
       return;
@@ -908,7 +921,7 @@ export class App {
     this.noteInput();
     const rewarded = await this.ads.rewarded('undo');
     if (!rewarded) {
-      this.toast('Ролик не засчитан');
+      this.toast(t('toast.adNotCounted'));
       return;
     }
     session.sawRewarded = true;
@@ -926,7 +939,7 @@ export class App {
     this.noteInput();
     const rewarded = await this.ads.rewarded('extraShelf');
     if (!rewarded) {
-      this.toast('Ролик не засчитан');
+      this.toast(t('toast.adNotCounted'));
       return;
     }
     session.sawRewarded = true;
@@ -962,7 +975,7 @@ export class App {
         this.persistResume();
         return;
       }
-      this.toast('Ролик не засчитан');
+      this.toast(t('toast.adNotCounted'));
       // Ролик не засчитан — даём витрину всё равно: тупик не должен стать
       // непроходимой стеной из-за проблем с сетью.
       await session.view.grantExtraShelf();
@@ -1023,13 +1036,13 @@ export class App {
     let awarded = coins;
     for (;;) {
       const choice = await showVictory(this.uiRoot, {
-        title: 'Витрина закрыта',
+        title: t('victory.title'),
         stars,
         coins: awarded,
         moves: session.board.moves,
         minMoves: session.spec.minMoves,
         canDouble: !session.doubledCoins,
-        nextLabel: 'Следующая витрина',
+        nextLabel: t('victory.next'),
       });
 
       if (choice === 'double') {
@@ -1041,7 +1054,7 @@ export class App {
           session.sawRewarded = true;
           this.audio.coin();
         } else {
-          this.toast('Ролик не засчитан');
+          this.toast(t('toast.adNotCounted'));
           session.doubledCoins = true;
         }
         continue;
@@ -1148,11 +1161,11 @@ export class App {
 
       if (choice === 'share') {
         const text =
-          `DROP · блиц: ${score} очков за 60 секунд, ${sets} витрин.` +
-          (rank !== null ? ` ${rank} место за неделю.` : '') +
-          ' Побей мой результат!';
+          t('blitz.shareText', { brand: brand(), score, sets }) +
+          (rank !== null ? t('blitz.shareRank', { rank }) : '') +
+          t('blitz.shareCall');
         const ok = await this.platform.copyText(text);
-        this.toast(ok ? 'Результат скопирован' : 'Не удалось скопировать');
+        this.toast(ok ? t('toast.copied') : t('toast.copyFailed'));
         continue;
       }
       if (choice === 'retry') {
@@ -1162,7 +1175,7 @@ export class App {
       if (choice === 'retryAd') {
         const rewarded = await this.ads.rewarded('blitzRetry');
         if (!rewarded) {
-          this.toast('Ролик не засчитан');
+          this.toast(t('toast.adNotCounted'));
           continue;
         }
         this.profile.grantBlitzAttempt();

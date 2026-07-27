@@ -175,11 +175,15 @@ for (const format of FORMATS) {
     continue;
   }
 
+  // Локаль задаётся явно: снимки идут в русскую витрину консоли, а без SDK
+  // язык берётся из браузера, у которого по умолчанию en-US. Для англоязычной
+  // витрины тот же скрипт запускается с SHOT_LOCALE=en-US.
   const context = await browser.newContext({
     viewport: { width: format.width, height: format.height },
     deviceScaleFactor: format.scale,
     isMobile: format.name === 'portrait',
     hasTouch: format.name === 'portrait',
+    locale: process.env.SHOT_LOCALE ?? 'ru-RU',
   });
   const page = await context.newPage();
   // Без явного предела упавший шаг ждёт полминуты на стандартном таймауте.

@@ -50,11 +50,15 @@ function withTimeout(promise, ms, what) {
 }
 
 const browser = await chromium.launch({ executablePath: CHROME });
+// Локаль задаётся явно. Без SDK язык берётся из браузера, а у Playwright по
+// умолчанию en-US: весь основной прогон шёл бы по английскому интерфейсу, и
+// проверки, написанные по русским подписям, падали бы «на пустом месте».
 const context = await browser.newContext({
   viewport: { width: 412, height: 892 },
   deviceScaleFactor: 2,
   isMobile: true,
   hasTouch: true,
+  locale: 'ru-RU',
 });
 const page = await context.newPage();
 // Любое ожидание Playwright падает через 20 секунд, а не висит бесконечно.
@@ -374,6 +378,61 @@ check('у каждого скина показана миниатюра витр
 await page.screenshot({ path: `${OUT}/smoke-09-shop.png`, fullPage: true });
 await page.locator('.screen__head .icon-btn').click();
 await page.waitForSelector('.brand', { timeout: 5000 });
+
+// --- Английская локаль -----------------------------------------------------
+//
+// Площадка требует определять язык интерфейса через SDK (§2.14). Проверяется
+// то, что видит игрок: меню целиком на английском и без единого кириллического
+// символа — забытая строка иначе всплывёт только на модерации.
+phase('английская локаль');
+const enContext = await browser.newContext({
+  viewport: { width: 412, height: 892 },
+  deviceScaleFactor: 2,
+  isMobile: true,
+  hasTouch: true,
+  locale: 'en-US',
+});
+const enPage = await enContext.newPage();
+enPage.setDefaultTimeout(20000);
+await enPage.goto(URL, { waitUntil: 'domcontentloaded' });
+await enPage.waitForSelector('.brand', { timeout: 20000 });
+// Награда за вход и анонс сезона могут перекрыть меню.
+for (let i = 0; i < 4; i++) {
+  const btn = enPage.locator('.overlay.is-open .card__actions button').first();
+  if (!(await btn.count())) break;
+  await btn.click();
+  await enPage.waitForTimeout(250);
+}
+
+const enLangAttr = await enPage.evaluate(() => document.documentElement.lang);
+check('атрибут lang переключился на en', enLangAttr === 'en', `lang=${enLangAttr}`);
+
+const enTitle = await enPage.title();
+check('заголовок вкладки на английском', /VITRINKA/.test(enTitle), enTitle);
+
+const enMenu = await enPage.evaluate(() => document.querySelector('.menu')?.textContent ?? '');
+check('в меню есть английские подписи', /Shop/.test(enMenu) && /Leaders/.test(enMenu), enMenu.slice(0, 120));
+const strayCyrillic = enMenu.match(/[А-Яа-яЁё]+/g);
+check(
+  'в английском меню нет кириллицы',
+  strayCyrillic === null,
+  strayCyrillic ? strayCyrillic.join(' ') : ''
+);
+
+// Коллекция — самый большой источник строк: 72 имени фигурок и подписи редкости.
+await enPage.locator('.menu__row button').first().click();
+await enPage.waitForSelector('.grid', { timeout: 5000 });
+const enCollection = await enPage.evaluate(
+  () => document.querySelector('.screen__body')?.textContent ?? ''
+);
+const collectionCyrillic = enCollection.match(/[А-Яа-яЁё]+/g);
+check(
+  'в английской коллекции нет кириллицы',
+  collectionCyrillic === null,
+  collectionCyrillic ? [...new Set(collectionCyrillic)].slice(0, 12).join(' ') : ''
+);
+await enPage.screenshot({ path: `${OUT}/smoke-10-english.png`, fullPage: true });
+await enContext.close();
 
 // --- Итоги ----------------------------------------------------------------
 phase('итоги');

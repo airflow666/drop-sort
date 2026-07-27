@@ -8,19 +8,30 @@
 import { figurineSvg } from '../theme/figurines';
 import {
   figurineLook,
-  FINISH_LABEL,
-  RARITY_LABEL,
+  figurineName,
+  finishLabel,
+  rarityLabel,
   SEASONS,
   seasonById,
   seasonDaysLeft,
+  seasonName,
+  seasonTagline,
   type FigurineDef,
   type SeasonTheme,
 } from '../theme/seasons';
-import { skinById, skinChipSvg, SKINS, type Skin } from '../theme/skins';
+import {
+  skinById,
+  skinChipSvg,
+  skinDescription,
+  skinName,
+  SKINS,
+  type Skin,
+} from '../theme/skins';
+import { brand, formatNumber, pluralize, t, type Key } from '../i18n';
 import type { Profile } from '../meta/profile';
 import { BLIND_BOX_COST, DUPLICATES_PER_BOX } from '../meta/profile';
 import type { CatalogItem, LeaderboardEntry } from '../platform/sdk';
-import { add, button, el, formatClock, formatNumber, iconButton, plural } from './dom';
+import { add, button, el, formatClock, iconButton } from './dom';
 
 export interface Screen {
   root: HTMLElement;
@@ -37,7 +48,7 @@ function screen(className = ''): HTMLElement {
 
 function head(title: string, onBack: () => void): HTMLElement {
   const bar = el('div', 'screen__head');
-  add(bar, iconButton('‹', 'Назад', 'icon-btn', onBack), el('h2', 'h2', { text: title }));
+  add(bar, iconButton('‹', t('common.back'), 'icon-btn', onBack), el('h2', 'h2', { text: title }));
   return bar;
 }
 
@@ -65,22 +76,31 @@ export function createMenu(profile: Profile, actions: MenuActions): Screen {
   add(
     top,
     el('span', 'coins', { text: formatNumber(profile.coins) }),
-    iconButton(profile.settings.muted ? '🔇' : '🔊', 'Звук', 'icon-btn', actions.onToggleSound)
+    iconButton(
+      profile.settings.muted ? '🔇' : '🔊',
+      t('common.sound'),
+      'icon-btn',
+      actions.onToggleSound
+    )
   );
   add(root, top);
 
-  add(root, el('h1', 'brand', { text: 'DROP' }), el('p', 'tagline', { text: season.tagline }));
+  add(
+    root,
+    el('h1', 'brand', { text: brand() }),
+    el('p', 'tagline', { text: seasonTagline(season.id) })
+  );
 
   const modes = el('div', 'menu__modes');
 
   // --- Кампания ---
   const resume = profile.resume;
-  const campaignNote = resume?.mode === 'campaign' ? 'продолжить партию' : 'бесконечная лента';
+  const campaignNote = resume?.mode === 'campaign' ? t('menu.resumeRun') : t('menu.endless');
   add(
     modes,
     modeCard({
       icon: '▦',
-      title: `Витрина ${profile.campaignLevel}`,
+      title: t('menu.case', { n: profile.campaignLevel }),
       note: campaignNote,
       status: `${profile.totalStars} ★`,
       primary: true,
@@ -95,11 +115,11 @@ export function createMenu(profile: Profile, actions: MenuActions): Screen {
     modes,
     modeCard({
       icon: '⚡',
-      title: 'Блиц',
+      title: t('menu.blitz'),
       note:
         attempts > 0
-          ? `60 секунд · ${attempts} ${plural(attempts, 'попытка', 'попытки', 'попыток')}`
-          : `попытка через ${formatClock(refill)}`,
+          ? t('menu.blitzAttempts', { n: attempts, attempts: pluralize(attempts, 'attempts') })
+          : t('menu.blitzRefill', { clock: formatClock(refill) }),
       status: profile.blitzBest > 0 ? formatNumber(profile.blitzBest) : '—',
       onPress: actions.onBlitz,
     })
@@ -111,9 +131,14 @@ export function createMenu(profile: Profile, actions: MenuActions): Screen {
     modes,
     modeCard({
       icon: '◈',
-      title: 'Вызов дня',
-      note: done ? 'пройден — можно улучшить' : 'один уровень для всех',
-      status: done ? `${profile.dailyBestMoves} ходов` : 'новый',
+      title: t('menu.daily'),
+      note: done ? t('menu.dailyDone') : t('menu.dailyNew'),
+      status: done
+        ? t('menu.dailyMoves', {
+            n: profile.dailyBestMoves,
+            moves: pluralize(profile.dailyBestMoves, 'moves'),
+          })
+        : t('menu.new'),
       onPress: actions.onDaily,
     })
   );
@@ -122,20 +147,23 @@ export function createMenu(profile: Profile, actions: MenuActions): Screen {
   const row = el('div', 'menu__row');
   add(
     row,
-    button(`Витрина ${progress.owned}/${progress.total}`, 'btn btn--ghost', actions.onCollection, {
-      style: 'flex:1',
-    }),
-    button('Магазин', 'btn btn--ghost', actions.onShop, { style: 'flex:1' })
+    button(
+      t('menu.collection', { owned: progress.owned, total: progress.total }),
+      'btn btn--ghost',
+      actions.onCollection,
+      { style: 'flex:1' }
+    ),
+    button(t('menu.shop'), 'btn btn--ghost', actions.onShop, { style: 'flex:1' })
   );
   add(root, row);
 
   const row2 = el('div', 'menu__row');
   add(
     row2,
-    button('Лидеры', 'btn btn--ghost btn--sm', actions.onLeaderboard, { style: 'flex:1' }),
+    button(t('menu.leaders'), 'btn btn--ghost btn--sm', actions.onLeaderboard, { style: 'flex:1' }),
     // Гайд сам показывается один раз перед первой партией; кнопка нужна тем,
     // кто его пропустил, и тем, кто вернулся через месяц.
-    button('Как играть', 'btn btn--ghost btn--sm', actions.onHowToPlay, { style: 'flex:1' })
+    button(t('menu.howToPlay'), 'btn btn--ghost btn--sm', actions.onHowToPlay, { style: 'flex:1' })
   );
   add(root, row2);
 
@@ -152,7 +180,12 @@ export function createMenu(profile: Profile, actions: MenuActions): Screen {
   add(
     seasonBar,
     el('div', 'tiny', {
-      text: `СЕЗОН ${season.id} · ${season.name} · ${daysLeft} ${plural(daysLeft, 'день', 'дня', 'дней')}`,
+      text: t('menu.season', {
+        id: season.id,
+        name: seasonName(season.id),
+        n: daysLeft,
+        days: pluralize(daysLeft, 'days'),
+      }),
     }),
     bar
   );
@@ -202,7 +235,7 @@ export interface CollectionActions {
 
 export function createCollection(profile: Profile, actions: CollectionActions): Screen {
   const root = screen();
-  add(root, head('Витрина', actions.onBack));
+  add(root, head(t('collection.title'), actions.onBack));
 
   const body = el('div', 'screen__body');
 
@@ -213,23 +246,25 @@ export function createCollection(profile: Profile, actions: CollectionActions): 
   boxPanel.style.textAlign = 'left';
   add(
     boxPanel,
-    el('h3', 'h2', { text: 'Блайнд-бокс' }),
-    el('p', 'card__sub', {
-      text: 'Случайная фигурка серии. Только за монеты, дубликаты или просмотр — никогда за деньги.',
-    })
+    el('h3', 'h2', { text: t('collection.box') }),
+    el('p', 'card__sub', { text: t('collection.boxNote') })
   );
   const boxActions = el('div', 'card__actions');
   const buyBtn = button(
-    `Открыть · ${BLIND_BOX_COST} монет`,
+    t('collection.boxBuy', { n: BLIND_BOX_COST }),
     'btn btn--primary btn--wide',
     actions.onBuyBox
   );
   buyBtn.disabled = profile.coins < BLIND_BOX_COST;
-  add(boxActions, buyBtn, button('▶ Открыть за просмотр', 'btn btn--rewarded btn--wide', actions.onAdBox));
+  add(
+    boxActions,
+    buyBtn,
+    button(t('collection.boxAd'), 'btn btn--rewarded btn--wide', actions.onAdBox)
+  );
 
   const canExchange = profile.duplicates >= DUPLICATES_PER_BOX;
   const exchangeBtn = button(
-    `Обменять дубликаты · ${profile.duplicates}/${DUPLICATES_PER_BOX}`,
+    t('collection.boxTrade', { have: profile.duplicates, need: DUPLICATES_PER_BOX }),
     'btn btn--ghost btn--wide btn--sm',
     actions.onExchange
   );
@@ -247,11 +282,7 @@ export function createCollection(profile: Profile, actions: CollectionActions): 
 
   add(
     body,
-    el('p', 'muted', {
-      text:
-        'Нажмите на собранную фигурку — она выйдет на поле вместо стандартной. ' +
-        'Каждый силуэт меняется отдельно.',
-    })
+    el('p', 'muted', { text: t('collection.hint') })
   );
 
   for (const season of ordered) {
@@ -261,11 +292,11 @@ export function createCollection(profile: Profile, actions: CollectionActions): 
     const header = el('div', 'season-head');
     add(
       header,
-      el('b', undefined, { text: `${season.id} · ${season.name}` }),
+      el('b', undefined, { text: `${season.id} · ${seasonName(season.id)}` }),
       el('span', undefined, { text: `${progress.owned}/${progress.total}` })
     );
     if (isCurrent) {
-      const badge = el('span', 'rarity rarity--rare', { text: 'сейчас' });
+      const badge = el('span', 'rarity rarity--rare', { text: t('collection.current') });
       add(header, badge);
     }
     add(body, header);
@@ -316,12 +347,12 @@ function figurineCell(
     ? button('', className, () => onEquip(fig.key))
     : el('div', className);
   const what =
-    `${fig.name} — ${RARITY_LABEL[fig.rarity]}` +
-    (fig.finish ? `, ${FINISH_LABEL[fig.finish]}` : '');
+    `${figurineName(fig)} — ${rarityLabel(fig.rarity)}` +
+    (fig.finish ? `, ${finishLabel(fig.finish)}` : '');
   cell.title = active
-    ? `${what}. Сейчас на поле`
+    ? t('collection.tipInPlay', { what })
     : owned
-      ? `${what}. Нажмите, чтобы выставить на поле`
+      ? t('collection.tipEquip', { what })
       : what;
 
   // Не полученная фигурка — силуэт без лица и без свечения. Видно, какой
@@ -336,14 +367,14 @@ function figurineCell(
       );
   art.style.width = '100%';
   add(cell, art);
-  add(cell, el('div', 'fig__name', { text: owned ? fig.name : '???' }));
+  add(cell, el('div', 'fig__name', { text: owned ? figurineName(fig) : t('collection.unknown') }));
   if (count > 1) add(cell, el('span', 'fig__count', { text: `×${count}` }));
   // Отделка чейза подписана прямо на карточке: с миниатюры 78 пикселей
   // «блёстки» и «холо» различимы, а вот какое именно — нет.
   if (owned && fig.finish) {
-    add(cell, el('span', 'fig__finish', { text: FINISH_LABEL[fig.finish] }));
+    add(cell, el('span', 'fig__finish', { text: finishLabel(fig.finish) }));
   }
-  if (active) add(cell, el('span', 'fig__on', { text: 'НА ПОЛЕ' }));
+  if (active) add(cell, el('span', 'fig__on', { text: t('collection.inPlay') }));
   return cell;
 }
 
@@ -355,7 +386,7 @@ export function createLeaderboard(opts: {
   daily: LeaderboardEntry[];
 }): Screen {
   const root = screen();
-  add(root, head('Лидеры', opts.onBack));
+  add(root, head(t('leaders.title'), opts.onBack));
   const body = el('div', 'screen__body');
 
   const section = (title: string, note: string, entries: LeaderboardEntry[]) => {
@@ -363,9 +394,7 @@ export function createLeaderboard(opts: {
     if (entries.length === 0) {
       add(
         body,
-        el('p', 'muted', {
-          text: 'Таблица пока пуста. Сыграйте — и займёте её первым.',
-        })
+        el('p', 'muted', { text: t('leaders.empty') })
       );
       return;
     }
@@ -383,8 +412,8 @@ export function createLeaderboard(opts: {
     add(body, list);
   };
 
-  section('Блиц', 'очки за неделю', opts.blitz);
-  section('Вызов дня', 'меньше ходов — выше', opts.daily);
+  section(t('leaders.blitz'), t('leaders.blitzNote'), opts.blitz);
+  section(t('leaders.daily'), t('leaders.dailyNote'), opts.daily);
 
   add(root, body);
   return { root, destroy: () => root.remove() };
@@ -403,33 +432,24 @@ export function createLeaderboard(opts: {
  */
 export interface ShopProduct {
   id: string;
-  title: string;
-  description: string;
-  /** Цена из каталога платформы; пока каталог не пришёл — прочерк. */
-  price: string;
-  owned?: boolean;
+  /**
+   * Ключи названия и описания в словаре. Это запасной текст: если каталог
+   * платформы ответил, показываются присланные ею название и описание — они
+   * уже локализованы на стороне консоли, и расхождение с чеком было бы хуже
+   * любого перевода.
+   */
+  titleKey: Key;
+  noteKey: Key;
 }
 
-export const SHOP_PRODUCTS: readonly Omit<ShopProduct, 'price'>[] = [
-  {
-    id: 'hints_10',
-    title: '10 подсказок',
-    description: 'Подсказка показывает следующий ход. Без рекламы.',
-  },
-  {
-    id: 'no_ads',
-    title: 'Убрать рекламу',
-    description: 'Отключает фулскрины и баннер. Rewarded остаются по желанию.',
-  },
-  {
-    id: 'week_pass',
-    title: 'Недельный пропуск',
-    description: 'Ежедневная награда монетами и подсказками на 7 дней.',
-  },
+export const SHOP_PRODUCTS: readonly ShopProduct[] = [
+  { id: 'hints_10', titleKey: 'product.hints10.title', noteKey: 'product.hints10.note' },
+  { id: 'no_ads', titleKey: 'product.noAds.title', noteKey: 'product.noAds.note' },
+  { id: 'week_pass', titleKey: 'product.weekPass.title', noteKey: 'product.weekPass.note' },
   {
     id: 'skin_chrome',
-    title: 'Скин витрин «Хром»',
-    description: 'Полированный металл: фаска с бликом по кромке. Только внешний вид.',
+    titleKey: 'product.skinChrome.title',
+    noteKey: 'product.skinChrome.note',
   },
 ];
 
@@ -446,15 +466,13 @@ export function createShop(
   }
 ): Screen {
   const root = screen();
-  add(root, head('Магазин', opts.onBack));
+  add(root, head(t('shop.title'), opts.onBack));
   const body = el('div', 'screen__body');
 
   add(
     body,
     el('div', 'coins', { text: formatNumber(profile.coins) }),
-    el('p', 'muted', {
-      text: 'Всё, что покупается за деньги, показано заранее. Случайные боксы — только за монеты и просмотр.',
-    })
+    el('p', 'muted', { text: t('shop.note') })
   );
 
   // --- Скины витрин за монеты ---------------------------------------------
@@ -463,10 +481,10 @@ export function createShop(
   const seasonTheme = seasonById(profile.seasonId).theme;
   add(
     body,
-    el('div', 'season-head', { html: '<b>ВИТРИНЫ</b><span>только внешний вид</span>' }),
-    el('p', 'tiny', {
-      text: 'Скин меняет конструкцию витрины и форму интерфейса — на правила это не влияет.',
-    })
+    el('div', 'season-head', {
+      html: `<b>${t('shop.cases')}</b><span>${t('shop.casesNote')}</span>`,
+    }),
+    el('p', 'tiny', { text: t('shop.casesHint') })
   );
   for (const skin of SKINS) {
     if (skin.coins === null && skin.id !== '') continue; // за деньги — ниже, в общем списке
@@ -477,15 +495,15 @@ export function createShop(
     const text = el('span', 'mode__text');
     add(
       text,
-      el('span', 'mode__title', { text: skin.name }),
-      el('span', 'mode__note', { text: skin.description })
+      el('span', 'mode__title', { text: skinName(skin) }),
+      el('span', 'mode__note', { text: skinDescription(skin) })
     );
 
     let action: HTMLElement;
     if (active) {
-      action = el('span', 'mode__status', { text: 'надет' });
+      action = el('span', 'mode__status', { text: t('shop.equipped') });
     } else if (owned) {
-      action = button('Надеть', 'btn btn--ghost btn--sm', () => opts.onApplySkin(skin.id));
+      action = button(t('shop.equip'), 'btn btn--ghost btn--sm', () => opts.onApplySkin(skin.id));
     } else {
       const buy = button(`${skin.coins}`, 'btn btn--primary btn--sm', () =>
         opts.onBuySkin(skin.id)
@@ -497,7 +515,12 @@ export function createShop(
     add(body, card);
   }
 
-  add(body, el('div', 'season-head', { html: '<b>ЗА ДЕНЬГИ</b><span>без случайности</span>' }));
+  add(
+    body,
+    el('div', 'season-head', {
+      html: `<b>${t('shop.money')}</b><span>${t('shop.moneyNote')}</span>`,
+    })
+  );
 
   for (const product of SHOP_PRODUCTS) {
     const listed = catalog.find((c) => c.id === product.id);
@@ -509,17 +532,17 @@ export function createShop(
     const text = el('span', 'mode__text');
     add(
       text,
-      el('span', 'mode__title', { text: listed?.title || product.title }),
-      el('span', 'mode__note', { text: listed?.description || product.description })
+      el('span', 'mode__title', { text: listed?.title || t(product.titleKey) }),
+      el('span', 'mode__note', { text: listed?.description || t(product.noteKey) })
     );
 
     const isActiveSkin = product.id.startsWith('skin_') && profile.activeSkin === product.id;
     const action = isActiveSkin
-      ? el('span', 'mode__status', { text: 'надет' })
+      ? el('span', 'mode__status', { text: t('shop.equipped') })
       : owned && product.id.startsWith('skin_')
-        ? button('Надеть', 'btn btn--ghost btn--sm', () => opts.onApplySkin(product.id))
+        ? button(t('shop.equip'), 'btn btn--ghost btn--sm', () => opts.onApplySkin(product.id))
         : owned
-          ? el('span', 'mode__status', { text: 'куплено' })
+          ? el('span', 'mode__status', { text: t('shop.owned') })
           : button(listed?.price || '—', 'btn btn--primary btn--sm', () => opts.onBuy(product.id));
     if (!owned && !listed && action instanceof HTMLButtonElement) {
       // Каталог не пришёл (нет сети или монетизация не включена в консоли) —

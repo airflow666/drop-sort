@@ -20,6 +20,7 @@
 
 import type { Platform } from './sdk';
 import type { Audio } from './audio';
+import { t } from '../i18n';
 
 /** Поводы для rewarded из плана (§8). */
 export type RewardedPlacement =
@@ -72,7 +73,7 @@ export class Ads {
     if (this.busy) return false;
     this.busy = true;
     try {
-      await this.showCountdown('Реклама через');
+      await this.showCountdown(t('ads.countdown'));
       this.beforeAd();
       const { wasShown } = await this.platform.showInterstitial();
       if (wasShown) this.stats.interstitialsShown += 1;

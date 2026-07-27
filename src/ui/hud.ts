@@ -24,7 +24,8 @@
  * свой счёт игрок впервые видел только на экране итога.
  */
 
-import { add, el, formatNumber, iconButton } from './dom';
+import { add, el, iconButton } from './dom';
+import { formatNumber, t } from '../i18n';
 
 export interface HudActions {
   onBack(): void;
@@ -70,7 +71,7 @@ export class Hud {
   private readonly titleEl = el('b');
   private readonly titleWrap = el('div', 'hud__stat', { 'data-stat': 'title' });
   private readonly movesEl = el('b');
-  private readonly movesLabel = el('span', undefined, { text: 'ходов' });
+  private readonly movesLabel = el('span', undefined, { text: t('hud.moves') });
   private readonly movesWrap = el('div', 'hud__stat', { 'data-stat': 'moves' });
   private readonly scoreEl = el('b');
   private readonly scoreWrap = el('div', 'hud__stat hud__stat--score', { 'data-stat': 'score' });
@@ -94,15 +95,15 @@ export class Hud {
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(actions: HudActions) {
-    const back = iconButton('‹', 'В меню', 'icon-btn', actions.onBack);
+    const back = iconButton('‹', t('hud.aria.menu'), 'icon-btn', actions.onBack);
 
-    add(this.titleWrap, this.titleEl, el('span', undefined, { text: 'витрина' }));
+    add(this.titleWrap, this.titleEl, el('span', undefined, { text: t('hud.case') }));
     add(this.movesWrap, this.movesEl, this.movesLabel);
-    add(this.scoreWrap, this.scoreEl, el('span', undefined, { text: 'очков' }));
-    add(this.progressWrap, this.progressEl, el('span', undefined, { text: 'собрано' }));
-    add(this.timerWrap, this.timerEl, el('span', undefined, { text: 'секунд' }));
+    add(this.scoreWrap, this.scoreEl, el('span', undefined, { text: t('hud.points') }));
+    add(this.progressWrap, this.progressEl, el('span', undefined, { text: t('hud.collected') }));
+    add(this.timerWrap, this.timerEl, el('span', undefined, { text: t('hud.seconds') }));
 
-    this.soundBtn = iconButton('🔊', 'Звук', 'icon-btn', actions.onToggleSound);
+    this.soundBtn = iconButton('🔊', t('hud.aria.sound'), 'icon-btn', actions.onToggleSound);
 
     // Показатели собраны в отдельную группу с общим сжатием: если ширины не
     // хватает, ужимается она, а кнопки «назад» и «звук» остаются полного
@@ -121,9 +122,9 @@ export class Hud {
 
     // Инструменты. Иконки, а не подписи: три текстовые кнопки в ряд не влезают
     // на узкий телефон, а смысл каждой закрепляется значком цены.
-    this.hintBtn = iconButton('💡', 'Подсказка', 'icon-btn', actions.onHint);
-    this.undoBtn = iconButton('↺', 'Отменить ход', 'icon-btn', actions.onUndo);
-    this.shelfBtn = iconButton('＋', 'Добавить свободную витрину', 'icon-btn', actions.onExtraShelf);
+    this.hintBtn = iconButton('💡', t('hud.aria.hint'), 'icon-btn', actions.onHint);
+    this.undoBtn = iconButton('↺', t('hud.aria.undo'), 'icon-btn', actions.onUndo);
+    this.shelfBtn = iconButton('＋', t('hud.aria.extraShelf'), 'icon-btn', actions.onExtraShelf);
     this.hintBtn.appendChild(this.hintBadge);
     this.undoBtn.appendChild(this.undoBadge);
     this.shelfBtn.appendChild(this.shelfBadge);
@@ -161,7 +162,7 @@ export class Hud {
     this.movesEl.textContent = String(state.moves);
     // Оптимум показывается как ориентир, а не как приговор: игрок видит, к
     // чему стремиться, но перебор ходов не блокирует прохождение.
-    this.movesLabel.textContent = state.minMoves > 0 ? `из ~${state.minMoves}` : 'ходов';
+    this.movesLabel.textContent = state.minMoves > 0 ? t('hud.movesOf', { n: state.minMoves }) : t('hud.moves');
     this.progressEl.textContent = `${state.closed}/${state.total}`;
     this.coinsEl.textContent = formatNumber(state.coins);
 
@@ -202,7 +203,10 @@ export class Hud {
     this.shelfBtn.disabled = state.busy;
 
     this.soundBtn.textContent = state.muted ? '🔇' : '🔊';
-    this.soundBtn.setAttribute('aria-label', state.muted ? 'Включить звук' : 'Выключить звук');
+    this.soundBtn.setAttribute(
+      'aria-label',
+      state.muted ? t('hud.aria.soundOn') : t('hud.aria.soundOff')
+    );
   }
 
   /**

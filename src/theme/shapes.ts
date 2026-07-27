@@ -28,6 +28,7 @@
 
 import type { Colorway } from './color';
 import { mix } from './color';
+import { t, type Key } from '../i18n';
 
 // --- Построители контуров ---------------------------------------------------
 
@@ -142,8 +143,6 @@ export type EyeStyle = 'round' | 'almond' | 'sparkle' | 'glow' | 'ring' | 'happy
 export type MouthStyle = 'smile' | 'grin' | 'line' | 'stitch' | 'none';
 
 export interface ShapeDef {
-  /** Русское имя для экрана коллекции. */
-  name: string;
   /** Контур корпуса. Может быть составным — например, кольцо пончика. */
   body: string;
   /** Заливка по чётности: нужна фигурам с отверстием. */
@@ -175,7 +174,6 @@ export interface ShapeDef {
 
 const ARCADE: Record<string, ShapeDef> = {
   bot: {
-    name: 'Робот',
     body: rr(22, 32, 56, 82, 18),
     behind: (c) =>
       `<path d="M 50 34 L 50 14" stroke="${c.dark}" stroke-width="4.5" ` +
@@ -196,7 +194,6 @@ const ARCADE: Record<string, ShapeDef> = {
   },
 
   tape: {
-    name: 'Кассета',
     body: rr(6, 36, 88, 68, 12),
     front: (c) =>
       `<path d="${rr(14, 44, 72, 26, 8)}" fill="${c.light}" opacity=".6"/>` +
@@ -212,7 +209,6 @@ const ARCADE: Record<string, ShapeDef> = {
   },
 
   bolt: {
-    name: 'Молния',
     body: poly([
       [66, 6],
       [22, 62],
@@ -227,7 +223,6 @@ const ARCADE: Record<string, ShapeDef> = {
   },
 
   heart: {
-    name: 'Сердце',
     body:
       'M 50 114 C 14 88, 6 58, 22 42 C 34 30, 48 34, 50 48 ' +
       'C 52 34, 66 30, 78 42 C 94 58, 86 88, 50 114 Z',
@@ -237,7 +232,6 @@ const ARCADE: Record<string, ShapeDef> = {
   },
 
   disc: {
-    name: 'Диско',
     body: circ(50, 72, 42),
     behind: (c) =>
       `<path d="M 50 32 L 50 12" stroke="${c.dark}" stroke-width="3.5" ` +
@@ -263,7 +257,6 @@ const ARCADE: Record<string, ShapeDef> = {
   },
 
   rocket: {
-    name: 'Ракета',
     // Нос притуплён, корпус шире, стабилизаторы вынесены далеко за борт: с
     // острым носом и прижатыми плавниками силуэт читался как лист, а не как
     // ракета.
@@ -289,7 +282,6 @@ const ARCADE: Record<string, ShapeDef> = {
   },
 
   glitch: {
-    name: 'Глитч',
     // Низ рассыпается тремя крупными ступенями. Шесть мелких превращали
     // силуэт в бахрому, и на 40 пикселях он читался как медуза.
     body:
@@ -305,7 +297,6 @@ const ARCADE: Record<string, ShapeDef> = {
   },
 
   gem: {
-    name: 'Кристалл',
     body: poly([
       [50, 8],
       [84, 38],
@@ -340,7 +331,6 @@ const EGG =
 
 const PLUSH: Record<string, ShapeDef> = {
   bear: {
-    name: 'Мишка',
     body: EGG,
     behind: (c) => {
       const ear = `<circle cx="20" cy="40" r="17" fill="${c.base}"/>`;
@@ -360,7 +350,6 @@ const PLUSH: Record<string, ShapeDef> = {
   },
 
   bunny: {
-    name: 'Зайка',
     body: EGG,
     behind: (c) => {
       const ear = soft('M 33 52 C 21 24, 25 2, 36 2 C 47 2, 44 28, 42 54 Z', c.base, 3);
@@ -377,7 +366,6 @@ const PLUSH: Record<string, ShapeDef> = {
   },
 
   cat: {
-    name: 'Котик',
     body: EGG,
     behind: (c) => {
       // Уши с обводкой того же цвета: без неё острые вершины выглядели
@@ -400,7 +388,6 @@ const PLUSH: Record<string, ShapeDef> = {
   },
 
   duck: {
-    name: 'Утёнок',
     body: EGG,
     behind: (c) =>
       // Хохолок из трёх пёрышек.
@@ -421,7 +408,6 @@ const PLUSH: Record<string, ShapeDef> = {
   },
 
   frog: {
-    name: 'Лягушка',
     body:
       'M 50 42 C 80 42, 96 63, 96 85 C 96 106, 76 118, 50 118 ' +
       'C 24 118, 4 106, 4 85 C 4 63, 20 42, 50 42 Z',
@@ -435,7 +421,6 @@ const PLUSH: Record<string, ShapeDef> = {
   },
 
   sheep: {
-    name: 'Барашек',
     body: EGG,
     behind: (c) => {
       // Шерсть — венок из кругов по верхней дуге. Дешевле и надёжнее, чем
@@ -470,7 +455,6 @@ const PLUSH: Record<string, ShapeDef> = {
   },
 
   pig: {
-    name: 'Пятачок',
     body: EGG,
     behind: (c) => {
       const ear = soft('M 18 50 C 12 30, 22 24, 34 32 C 36 42, 30 50, 22 54 Z', c.base, 3);
@@ -491,7 +475,6 @@ const PLUSH: Record<string, ShapeDef> = {
   },
 
   owl: {
-    name: 'Совёнок',
     body:
       'M 50 26 C 76 26, 90 48, 90 76 C 90 103, 74 118, 50 118 ' +
       'C 26 118, 10 103, 10 76 C 10 48, 24 26, 50 26 Z',
@@ -524,7 +507,6 @@ const PLUSH: Record<string, ShapeDef> = {
 
 const MECH: Record<string, ShapeDef> = {
   mech: {
-    name: 'Меха',
     body:
       'M 26 30 L 74 30 C 82 30, 87 36, 86 44 L 82 96 C 81 108, 72 117, 60 117 ' +
       'L 40 117 C 28 117, 19 108, 18 96 L 14 44 C 13 36, 18 30, 26 30 Z',
@@ -544,7 +526,6 @@ const MECH: Record<string, ShapeDef> = {
   },
 
   cog: {
-    name: 'Шестерня',
     body: gearPath(50, 70, 46, 35, 9),
     soften: 7,
     front: (c) =>
@@ -556,7 +537,6 @@ const MECH: Record<string, ShapeDef> = {
   },
 
   bulb: {
-    name: 'Лампа',
     body:
       'M 50 8 C 72 8, 89 26, 89 48 C 89 64, 79 74, 73 86 L 27 86 ' +
       'C 21 74, 11 64, 11 48 C 11 26, 28 8, 50 8 Z',
@@ -574,7 +554,6 @@ const MECH: Record<string, ShapeDef> = {
   },
 
   capsule: {
-    name: 'Капсула',
     body: rr(24, 12, 52, 106, 26),
     front: (c) =>
       `<path d="M 25 66 H 75" stroke="${c.dark}" stroke-width="3" opacity=".5"/>` +
@@ -584,7 +563,6 @@ const MECH: Record<string, ShapeDef> = {
   },
 
   clock: {
-    name: 'Будильник',
     body: circ(50, 72, 40),
     behind: (c) => {
       // Чашки звонка выступают из-за корпуса вверх — по ним будильник
@@ -631,7 +609,6 @@ const MECH: Record<string, ShapeDef> = {
   },
 
   nut: {
-    name: 'Гайка',
     body: poly([
       [50, 12],
       [92, 40],
@@ -650,7 +627,6 @@ const MECH: Record<string, ShapeDef> = {
   },
 
   magnet: {
-    name: 'Магнит',
     body:
       'M 12 116 L 12 62 A 38 38 0 0 1 88 62 L 88 116 L 62 116 L 62 62 ' +
       'A 12 12 0 0 0 38 62 L 38 116 Z',
@@ -667,7 +643,6 @@ const MECH: Record<string, ShapeDef> = {
   },
 
   battery: {
-    name: 'Батарейка',
     body: rr(22, 24, 56, 92, 12),
     behind: (c) => `<path d="${rr(41, 12, 18, 16, 5)}" fill="${c.dark}"/>`,
     front: (c) =>
@@ -685,7 +660,6 @@ const MECH: Record<string, ShapeDef> = {
 
 const SUMMER: Record<string, ShapeDef> = {
   lemon: {
-    name: 'Лимон',
     body:
       'M 50 20 C 76 20, 93 44, 93 70 C 93 98, 74 117, 50 117 ' +
       'C 26 117, 7 98, 7 70 C 7 44, 24 20, 50 20 Z',
@@ -700,7 +674,6 @@ const SUMMER: Record<string, ShapeDef> = {
   },
 
   melon: {
-    name: 'Арбуз',
     body: 'M 6 108 A 44 44 0 0 1 94 108 Z',
     soften: 4,
     front: (c) => {
@@ -728,7 +701,6 @@ const SUMMER: Record<string, ShapeDef> = {
   },
 
   cherry: {
-    name: 'Вишня',
     body: `${circ(60, 84, 31)} ${circ(22, 92, 22)}`,
     behind: (c) => {
       const stem = mix(c.dark, '#3f8a2c', 0.7);
@@ -746,7 +718,6 @@ const SUMMER: Record<string, ShapeDef> = {
   },
 
   pine: {
-    name: 'Ананас',
     body:
       'M 50 34 C 74 34, 88 56, 88 80 C 88 104, 72 118, 50 118 ' +
       'C 28 118, 12 104, 12 80 C 12 56, 26 34, 50 34 Z',
@@ -778,7 +749,6 @@ const SUMMER: Record<string, ShapeDef> = {
   },
 
   berry: {
-    name: 'Клубника',
     body:
       'M 50 118 C 20 100, 8 76, 8 56 C 8 36, 26 24, 50 24 ' +
       'C 74 24, 92 36, 92 56 C 92 76, 80 100, 50 118 Z',
@@ -816,7 +786,6 @@ const SUMMER: Record<string, ShapeDef> = {
   },
 
   cactus: {
-    name: 'Кактус',
     body: rr(34, 28, 32, 90, 16),
     behind: (c) => {
       // Руки нарисованы толстой обводкой по ломаной, а не контуром: контур
@@ -847,7 +816,6 @@ const SUMMER: Record<string, ShapeDef> = {
   },
 
   shell: {
-    name: 'Ракушка',
     body: 'M 50 116 L 8 56 A 46 48 0 0 1 92 56 Z',
     soften: 8,
     front: (c) =>
@@ -863,7 +831,6 @@ const SUMMER: Record<string, ShapeDef> = {
   },
 
   pear: {
-    name: 'Груша',
     body:
       'M 50 14 C 60 14, 65 26, 62 40 C 79 49, 89 67, 89 85 ' +
       'C 89 105, 72 118, 50 118 C 28 118, 11 105, 11 85 ' +
@@ -888,7 +855,6 @@ const SUMMER: Record<string, ShapeDef> = {
 
 const SPACE: Record<string, ShapeDef> = {
   planet: {
-    name: 'Планета',
     body: circ(50, 68, 38),
     behind: (c) =>
       `<g transform="rotate(-18 50 74)"><ellipse cx="50" cy="74" rx="56" ry="15" ` +
@@ -903,7 +869,6 @@ const SPACE: Record<string, ShapeDef> = {
   },
 
   moon: {
-    name: 'Луна',
     body:
       'M 74 6 C 32 14, 4 38, 4 68 C 4 98, 32 120, 76 122 ' +
       'C 46 104, 34 90, 34 66 C 34 42, 48 20, 74 6 Z',
@@ -924,7 +889,6 @@ const SPACE: Record<string, ShapeDef> = {
   },
 
   star: {
-    name: 'Звезда',
     body: starPath(50, 68, 52, 25, 5, 8),
     face: { y: 70, gap: 13, size: 0.92 },
     eyes: 'sparkle',
@@ -932,7 +896,6 @@ const SPACE: Record<string, ShapeDef> = {
   },
 
   comet: {
-    name: 'Комета',
     // Хвост крепится широкой хордой по низу головы и сходит на нет. Раньше он
     // отходил от одной точки и читался как ручка от ложки.
     body:
@@ -953,7 +916,6 @@ const SPACE: Record<string, ShapeDef> = {
   },
 
   ufo: {
-    name: 'НЛО',
     body: `${ell(50, 92, 48, 16)} M 21 86 A 30 30 0 0 1 79 86 Z`,
     soften: 3,
     // Купол светлее корпуса и обведён по кромке. Одной геометрии мало: купол
@@ -978,7 +940,6 @@ const SPACE: Record<string, ShapeDef> = {
   },
 
   sat: {
-    name: 'Спутник',
     body: rr(36, 40, 28, 68, 10),
     behind: (c) => {
       const panel =
@@ -1002,7 +963,6 @@ const SPACE: Record<string, ShapeDef> = {
   },
 
   nebula: {
-    name: 'Туманность',
     body:
       'M 30 44 A 20 20 0 0 1 62 30 A 22 22 0 0 1 92 56 A 20 20 0 0 1 84 94 ' +
       'A 24 24 0 0 1 46 112 A 22 22 0 0 1 12 88 A 22 22 0 0 1 30 44 Z',
@@ -1026,7 +986,6 @@ const SPACE: Record<string, ShapeDef> = {
   },
 
   astro: {
-    name: 'Астронавт',
     body:
       `${circ(50, 58, 40)} ` +
       'M 16 88 C 22 108, 34 118, 50 118 C 66 118, 78 108, 84 88 Z',
@@ -1053,7 +1012,6 @@ const SPACE: Record<string, ShapeDef> = {
 
 const SWEET: Record<string, ShapeDef> = {
   donut: {
-    name: 'Пончик',
     // Кольцо: внешний контур по часовой, отверстие против — заливка evenodd.
     body: `${circ(50, 68, 44)} ${circ(50, 88, 17, 0)}`,
     evenodd: true,
@@ -1087,7 +1045,6 @@ const SWEET: Record<string, ShapeDef> = {
   },
 
   cup: {
-    name: 'Кекс',
     body:
       'M 50 22 C 72 22, 86 38, 86 56 C 86 62, 84 66, 82 70 L 18 70 ' +
       'C 16 66, 14 62, 14 56 C 14 38, 28 22, 50 22 Z ' +
@@ -1111,7 +1068,6 @@ const SWEET: Record<string, ShapeDef> = {
   },
 
   pop: {
-    name: 'Эскимо',
     body: `${rr(22, 8, 56, 88, 20)} ${rr(42, 92, 16, 26, 6)}`,
     front: (c) => {
       const drip = mix(c.light, '#ffffff', 0.45);
@@ -1138,7 +1094,6 @@ const SWEET: Record<string, ShapeDef> = {
   },
 
   candy: {
-    name: 'Карамель',
     body:
       `${ell(50, 68, 30, 34)} ` +
       'M 22 52 L 2 34 L 8 68 L 2 100 L 22 84 Z ' +
@@ -1155,7 +1110,6 @@ const SWEET: Record<string, ShapeDef> = {
   },
 
   slice: {
-    name: 'Тортик',
     body: 'M 50 14 L 92 108 C 93 114, 89 118, 82 118 L 18 118 C 11 118, 7 114, 8 108 Z',
     soften: 8,
     front: (c) => {
@@ -1172,7 +1126,6 @@ const SWEET: Record<string, ShapeDef> = {
   },
 
   marsh: {
-    name: 'Зефир',
     body: rr(14, 40, 72, 78, 26),
     front: (c) =>
       `<path d="M 15 78 H 85" stroke="${c.dark}" stroke-width="2.4" opacity=".3"/>` +
@@ -1183,7 +1136,6 @@ const SWEET: Record<string, ShapeDef> = {
   },
 
   lolli: {
-    name: 'Леденец',
     body: `${circ(50, 54, 40)} ${rr(44, 88, 12, 30, 5)}`,
     front: (c) => {
       // Спираль: четыре витка дугами, каждый следующий короче.
@@ -1200,7 +1152,6 @@ const SWEET: Record<string, ShapeDef> = {
   },
 
   pudding: {
-    name: 'Пудинг',
     body:
       'M 26 46 C 26 40, 36 36, 50 36 C 64 36, 74 40, 74 46 ' +
       'L 86 108 C 87 114, 82 118, 74 118 L 26 118 C 18 118, 13 114, 14 108 Z',
@@ -1251,6 +1202,11 @@ export const SEASON_SHAPES: ReadonlyArray<readonly ShapeId[]> = [
   ['donut', 'cup', 'pop', 'candy', 'slice', 'marsh', 'lolli', 'pudding'],
 ];
 
+/**
+ * Отображаемое имя силуэта. Живёт в словаре, а не в описании фигуры: имя —
+ * единственное в `ShapeDef`, что зависит от языка, и держать его рядом с
+ * геометрией значило бы иметь два источника правды для одной строки.
+ */
 export function shapeName(shape: ShapeId): string {
-  return SHAPES[shape]?.name ?? shape;
+  return t(`shape.${shape}` as Key);
 }

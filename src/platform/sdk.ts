@@ -18,6 +18,8 @@
  * скрипта и нашим модулем.
  */
 
+import { t } from '../i18n';
+
 const LS_KEY = 'drop.save.v1';
 const LS_LEADERBOARD = 'drop.mock.leaderboard.v1';
 const INIT_TIMEOUT_MS = 10_000;
@@ -76,7 +78,7 @@ class MockPlayer {
     return Promise.resolve();
   }
   getName(): string {
-    return 'Игрок';
+    return t('common.player');
   }
 }
 
@@ -105,6 +107,8 @@ export class Platform {
   async init(): Promise<void> {
     if (this.isMock) {
       this.player = new MockPlayer();
+      // Только в режиме заглушки: на площадке язык всегда приходит из SDK,
+      // а локально другого источника просто нет.
       this.lang = (navigator.language || 'ru').toLowerCase().split('-')[0];
       this.isMobile = /android|iphone|ipad|mobile/i.test(navigator.userAgent);
       mockLog('init (режим заглушки)');
@@ -331,9 +335,9 @@ export class Platform {
 
   playerName(): string {
     try {
-      return this.player?.getName?.() || 'Игрок';
+      return this.player?.getName?.() || t('common.player');
     } catch {
-      return 'Игрок';
+      return t('common.player');
     }
   }
 
@@ -423,7 +427,7 @@ export class Platform {
       return res.entries.map((e: AnySdk) => ({
         rank: e.rank,
         score: e.score,
-        name: e.player?.publicName || 'Игрок',
+        name: e.player?.publicName || t('common.player'),
         self: myRank !== null && e.rank === myRank,
       }));
     } catch (e) {
@@ -446,7 +450,7 @@ export class Platform {
       name,
       self: false,
     }));
-    fake.push({ rank: 0, score: mine, name: 'Вы', self: true });
+    fake.push({ rank: 0, score: mine, name: t('common.you'), self: true });
     return fake
       .sort((a, b) => b.score - a.score)
       .slice(0, top)

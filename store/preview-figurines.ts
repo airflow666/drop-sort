@@ -17,7 +17,13 @@ import { writeFileSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { hexToHsl, luminance } from '../src/theme/color';
 import { figurineSvg, VIEWBOX } from '../src/theme/figurines';
-import { figurineLook, SEASONS } from '../src/theme/seasons';
+import {
+  figurineLook,
+  figurineName,
+  seasonName,
+  seasonTagline,
+  SEASONS,
+} from '../src/theme/seasons';
 
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const TILE = 112;
@@ -55,7 +61,7 @@ for (const season of SEASONS) {
       const dh = hueDistance(a.colors.base, b.colors.base);
       if (dl < MIN_LUMA_GAP && dh < MIN_HUE_GAP) {
         warnings.push(
-          `  сезон ${season.id} «${season.name}»: ${a.name} и ${b.name} —` +
+          `  сезон ${season.id} «${seasonName(season.id)}»: ${figurineName(a)} и ${figurineName(b)} —` +
             ` Δтон ${dh.toFixed(0)}°, Δсветлота ${dl.toFixed(3)}`
         );
       }
@@ -76,13 +82,13 @@ const rows = SEASONS.map((season) => {
             : '';
       return `<figure>
         <div class="art" style="aspect-ratio:${VIEWBOX.w}/${VIEWBOX.h}">${svg}${badge}</div>
-        <figcaption>${fig.name}</figcaption>
+        <figcaption>${figurineName(fig)}</figcaption>
       </figure>`;
     })
     .join('');
   return `<section style="--bg-top:${season.theme.bgTop};--bg-bottom:${season.theme.bgBottom};
       --glow-a:${season.theme.glowA};--glow-b:${season.theme.glowB}">
-      <h2><i>${season.id}</i>${season.name}<em>${season.tagline}</em></h2>
+      <h2><i>${season.id}</i>${seasonName(season.id)}<em>${seasonTagline(season.id)}</em></h2>
       <div class="grid">${cells}</div>
     </section>`;
 }).join('');

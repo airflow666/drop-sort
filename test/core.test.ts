@@ -6,6 +6,14 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import {
+  allKeys,
+  dictionary,
+  formatNumber,
+  pluralize,
+  setLanguage,
+} from '../src/i18n';
+import { ALL_FIGURINES, figurineName } from '../src/theme/seasons';
 import { Board } from '../src/core/board';
 import { findHint } from '../src/core/hint';
 import { rateLevel, blitzSetPoints } from '../src/core/scoring';
@@ -534,6 +542,107 @@ group('Паритет правил с Python-солвером', () => {
       assert.equal(mismatches.length, 0, mismatches.slice(0, 6).join('\n'));
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Локализация.
+ *
+ * Полнота словарей уже проверена типами (`EN` объявлен как `Record<Key, string>`),
+ * поэтому здесь проверяется то, что типы поймать не могут: пустые строки,
+ * забытый перевод копипастой и — главное — расхождение подстановок. Шаблон с
+ * `{n}` в одном языке и без него в другом компилируется прекрасно, а в игре
+ * даёт строку без числа.
+ */
+group('Локализация', () => {
+  const keys = allKeys();
+
+  test('оба словаря заполнены непустыми строками', () => {
+    const empty: string[] = [];
+    for (const language of ['ru', 'en'] as const) {
+      const dict = dictionary(language);
+      for (const key of keys) {
+        if (!dict[key] || !dict[key].trim()) empty.push(`${language}/${key}`);
+      }
+    }
+    assert.equal(empty.length, 0, `пустые строки: ${empty.join(', ')}`);
+  });
+
+  test('подстановки совпадают в обоих языках', () => {
+    const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+    const ru = dictionary('ru');
+    const en = dictionary('en');
+    const bad: string[] = [];
+    for (const key of keys) {
+      const a = placeholders(ru[key]).join(',');
+      const b = placeholders(en[key]).join(',');
+      if (a !== b) bad.push(`${key}: ru{${a}} en{${b}}`);
+    }
+    assert.equal(bad.length, 0, bad.join('\n'));
+  });
+
+  test('английский не остался русским', () => {
+    const en = dictionary('en');
+    // Кириллица в английском словаре — верный признак незамеченной копипасты.
+    const cyrillic = keys.filter((key) => /[А-Яа-яЁё]/.test(en[key]));
+    assert.equal(cyrillic.length, 0, `не переведено: ${cyrillic.join(', ')}`);
+  });
+
+  test('у каждого силуэта и каждого чейза есть имя', () => {
+    const missing: string[] = [];
+    for (const fig of ALL_FIGURINES) {
+      for (const language of ['ru', 'en'] as const) {
+        setLanguage(language);
+        const name = figurineName(fig);
+        // Незнакомый ключ `t` возвращает как есть — по точке его и ловим.
+        if (!name || name.includes('shape.') || name.includes('variant.')) {
+          missing.push(`${language}/${fig.key}: ${name}`);
+        }
+      }
+    }
+    setLanguage('ru');
+    assert.equal(missing.length, 0, missing.join('\n'));
+  });
+
+  test('код языка от площадки сводится к ru или en', () => {
+    assert.equal(setLanguage('ru'), 'ru');
+    assert.equal(setLanguage('ru-RU'), 'ru');
+    // Пустой ответ SDK — это не «английский игрок», а неизвестность:
+    // основной рынок русский, туда и падаем.
+    assert.equal(setLanguage(''), 'ru');
+    assert.equal(setLanguage(null), 'ru');
+    assert.equal(setLanguage('en'), 'en');
+    assert.equal(setLanguage('en-US'), 'en');
+    // Незнакомый язык получает английский: он понятнее русского тому,
+    // кто не знает ни того, ни другого.
+    assert.equal(setLanguage('tr'), 'en');
+    setLanguage('ru');
+  });
+
+  test('разряды числа разделяются по правилам языка', () => {
+    setLanguage('ru');
+    // Именно неразрывный пробел (U+00A0), а не обычный: по обычному браузер
+    // переносит строку прямо посреди числа, и пилюля с монетами рвётся надвое.
+    assert.equal(formatNumber(1240), '1 240');
+    setLanguage('en');
+    assert.equal(formatNumber(1240), '1,240');
+    setLanguage('ru');
+  });
+
+  test('формы множественного числа', () => {
+    setLanguage('ru');
+    assert.equal(pluralize(1, 'moves'), 'ход');
+    assert.equal(pluralize(2, 'moves'), 'хода');
+    assert.equal(pluralize(5, 'moves'), 'ходов');
+    assert.equal(pluralize(11, 'moves'), 'ходов');
+    assert.equal(pluralize(21, 'moves'), 'ход');
+    setLanguage('en');
+    assert.equal(pluralize(1, 'moves'), 'move');
+    assert.equal(pluralize(2, 'moves'), 'moves');
+    assert.equal(pluralize(0, 'moves'), 'moves');
+    setLanguage('ru');
+  });
 });
 
 // ---------------------------------------------------------------------------

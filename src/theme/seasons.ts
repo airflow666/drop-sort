@@ -31,6 +31,7 @@
 import { colorway, type Colorway, type ColorwayOptions } from './color';
 import type { FigurineOptions, Finish, Material } from './figurines';
 import { SEASON_SHAPES, shapeName, type ShapeId } from './shapes';
+import { t, type Key } from '../i18n';
 
 export type Rarity = 'common' | 'rare' | 'legendary';
 
@@ -39,7 +40,13 @@ export interface FigurineDef {
   key: string;
   season: number;
   shape: ShapeId;
-  name: string;
+  /**
+   * Ключ названия чейза в словаре («acid», «platinum»). У обычных фигурок его
+   * нет — они называются по силуэту. Имя целиком собирает `figurineName`:
+   * хранить готовую строку нельзя, язык приходит от площадки уже после того,
+   * как этот модуль загрузился.
+   */
+  variant?: string;
   rarity: Rarity;
   colors: Colorway;
   /**
@@ -77,15 +84,13 @@ export interface SeasonTheme {
 
 interface SeasonSpec {
   id: number;
-  name: string;
-  tagline: string;
   theme: SeasonTheme;
   /** Поверхность фигурок серии — см. MATERIALS в src/theme/figurines.ts. */
   material: Material;
   options: ColorwayOptions;
   /** Базовые цвета в порядке SEASON_SHAPES[id - 1]. */
   bases: readonly string[];
-  /** Чейзы: силуэт, цвет, редкость, имя варианта, отделка. */
+  /** Чейзы: силуэт, цвет, редкость, ключ названия варианта, отделка. */
   chases: ReadonlyArray<readonly [ShapeId, string, Rarity, string, Finish]>;
 }
 
@@ -95,19 +100,34 @@ const RARITY_AURA: Record<Rarity, string | undefined> = {
   legendary: '#ffd54a',
 };
 
-export const RARITY_LABEL: Record<Rarity, string> = {
-  common: 'обычная',
-  rare: 'редкая',
-  legendary: 'легендарная',
-};
+export function rarityLabel(rarity: Rarity): string {
+  return t(`rarity.${rarity}` as Key);
+}
 
 /** Подпись отделки для карточки: игрок должен знать, что именно ему выпало. */
-export const FINISH_LABEL: Record<Finish, string> = {
-  holo: 'холо',
-  glitter: 'блёстки',
-  clear: 'прозрачная',
-  gold: 'металлик',
-};
+export function finishLabel(finish: Finish): string {
+  return t(`finish.${finish}` as Key);
+}
+
+/**
+ * Полное имя фигурки: силуэт, а у чейза — силуэт и название варианта.
+ *
+ * Собирается на каждый показ, а не один раз при сборке серии: язык приходит от
+ * площадки уже после того, как модуль загрузился, и запечённое имя осталось бы
+ * русским на английской витрине.
+ */
+export function figurineName(fig: FigurineDef): string {
+  const base = shapeName(fig.shape);
+  return fig.variant ? `${base} · ${t(`variant.${fig.variant}` as Key)}` : base;
+}
+
+export function seasonName(id: number): string {
+  return t(`season.${id}.name` as Key);
+}
+
+export function seasonTagline(id: number): string {
+  return t(`season.${id}.tagline` as Key);
+}
 
 /** Вес при открытии блайнд-бокса. Легендарка редкая, но достижимая без денег. */
 export const RARITY_WEIGHT: Record<Rarity, number> = {
@@ -119,8 +139,6 @@ export const RARITY_WEIGHT: Record<Rarity, number> = {
 const SEASON_SPECS: readonly SeasonSpec[] = [
   {
     id: 1,
-    name: 'NEON DROP',
-    tagline: 'Аркада: робот, кассета, молния, кристалл',
     material: 'vinyl',
     theme: {
       bgTop: '#1c1636',
@@ -138,16 +156,14 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
     // rocket, glitch, gem.
     bases: ['#45cfff', '#ff9a5c', '#ffd23f', '#ff62a8', '#b03ce0', '#34e3b0', '#8fe03a', '#9c7bff'],
     chases: [
-      ['bot', '#1ff0d0', 'rare', 'Кислотный', 'holo'],
-      ['heart', '#ff3d6e', 'rare', 'Супернова', 'glitter'],
-      ['gem', '#c8d8ff', 'rare', 'Белый шум', 'clear'],
-      ['disc', '#ffc93d', 'legendary', 'Золотой дроп', 'gold'],
+      ['bot', '#1ff0d0', 'rare', 'acid', 'holo'],
+      ['heart', '#ff3d6e', 'rare', 'supernova', 'glitter'],
+      ['gem', '#c8d8ff', 'rare', 'whitenoise', 'clear'],
+      ['disc', '#ffc93d', 'legendary', 'goldendrop', 'gold'],
     ],
   },
   {
     id: 2,
-    name: 'ПЛЮШ',
-    tagline: 'Мягкая линейка: зверята из ткани',
     material: 'plush',
     theme: {
       bgTop: '#2a2440',
@@ -163,16 +179,14 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
     // bear, bunny, cat, duck, frog, sheep, pig, owl
     bases: ['#ffd3a8', '#f0a8dc', '#c3b5f0', '#ffe9a3', '#a8e8bc', '#a8dcf0', '#ffb0b8', '#c8e6a0'],
     chases: [
-      ['bunny', '#fff0f5', 'rare', 'Зефир', 'glitter'],
-      ['bear', '#a8c8f0', 'rare', 'Незабудка', 'holo'],
-      ['frog', '#d8f0c8', 'rare', 'Матча', 'clear'],
-      ['cat', '#ffe0b8', 'legendary', 'Пыльная роза', 'gold'],
+      ['bunny', '#fff0f5', 'rare', 'marshmallow', 'glitter'],
+      ['bear', '#a8c8f0', 'rare', 'forgetmenot', 'holo'],
+      ['frog', '#d8f0c8', 'rare', 'matcha', 'clear'],
+      ['cat', '#ffe0b8', 'legendary', 'dustyrose', 'gold'],
     ],
   },
   {
     id: 3,
-    name: 'ХРОМ',
-    tagline: 'Механика: железо с характером',
     material: 'metal',
     theme: {
       bgTop: '#1a2030',
@@ -188,16 +202,14 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
     // mech, cog, bulb, capsule, clock, nut, magnet, battery
     bases: ['#8e93c7', '#c9a87e', '#d8c078', '#7fd6d0', '#92b8cf', '#9fbe8a', '#d98ba0', '#be8fc4'],
     chases: [
-      ['cog', '#8f9fa8', 'rare', 'Титан', 'holo'],
-      ['mech', '#a8b0c8', 'rare', 'Ртуть', 'clear'],
-      ['bulb', '#c8a878', 'rare', 'Латунь', 'glitter'],
-      ['clock', '#e8e4d8', 'legendary', 'Платина', 'gold'],
+      ['cog', '#8f9fa8', 'rare', 'titanium', 'holo'],
+      ['mech', '#a8b0c8', 'rare', 'mercury', 'clear'],
+      ['bulb', '#c8a878', 'rare', 'brass', 'glitter'],
+      ['clock', '#e8e4d8', 'legendary', 'platinum', 'gold'],
     ],
   },
   {
     id: 4,
-    name: 'ЛЕТО',
-    tagline: 'Фрукты и пляж, мокрый глянец',
     material: 'juicy',
     theme: {
       bgTop: '#3a1f2a',
@@ -213,16 +225,14 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
     // lemon, melon, cherry, pine, berry, cactus, shell, pear
     bases: ['#ffe45e', '#ff5e5e', '#ff6fa8', '#ffc93d', '#ff8a3d', '#4fd98a', '#7adcc8', '#a8d93a'],
     chases: [
-      ['melon', '#00e0a0', 'rare', 'Лайм', 'glitter'],
-      ['cherry', '#ff8f00', 'rare', 'Манго', 'holo'],
-      ['lemon', '#ff4060', 'rare', 'Гранат', 'clear'],
-      ['pine', '#fff0a0', 'legendary', 'Лимонный лёд', 'gold'],
+      ['melon', '#00e0a0', 'rare', 'lime', 'glitter'],
+      ['cherry', '#ff8f00', 'rare', 'mango', 'holo'],
+      ['lemon', '#ff4060', 'rare', 'pomegranate', 'clear'],
+      ['pine', '#fff0a0', 'legendary', 'lemonice', 'gold'],
     ],
   },
   {
     id: 5,
-    name: 'КОСМОС',
-    tagline: 'Планеты, кометы и спутники',
     material: 'cosmic',
     theme: {
       bgTop: '#141a3a',
@@ -238,16 +248,14 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
     // planet, moon, star, comet, ufo, sat, nebula, astro
     bases: ['#e8478e', '#3aa8e8', '#e8c43a', '#e8823c', '#2fd6c4', '#5cc93a', '#c44fe8', '#6c5ce7'],
     chases: [
-      ['planet', '#2f4fd8', 'rare', 'Полярное', 'holo'],
-      ['star', '#8f2fd8', 'rare', 'Аметист', 'glitter'],
-      ['nebula', '#2fd86f', 'rare', 'Малахит', 'clear'],
-      ['astro', '#f0f0ff', 'legendary', 'Сверхновая', 'gold'],
+      ['planet', '#2f4fd8', 'rare', 'aurora', 'holo'],
+      ['star', '#8f2fd8', 'rare', 'amethyst', 'glitter'],
+      ['nebula', '#2fd86f', 'rare', 'malachite', 'clear'],
+      ['astro', '#f0f0ff', 'legendary', 'nova', 'gold'],
     ],
   },
   {
     id: 6,
-    name: 'ДЕСЕРТ',
-    tagline: 'Финальный дроп: глазурь и посыпка',
     material: 'sugar',
     theme: {
       bgTop: '#2d1a3a',
@@ -263,10 +271,10 @@ const SEASON_SPECS: readonly SeasonSpec[] = [
     // donut, cup, pop, candy, slice, marsh, lolli, pudding
     bases: ['#ff7ee8', '#ffab70', '#6fd8ff', '#ffde5c', '#ff6b7e', '#5ee8c0', '#a5e85c', '#b08bff'],
     chases: [
-      ['donut', '#ff5ca8', 'rare', 'Жвачка', 'glitter'],
-      ['lolli', '#5cffd8', 'rare', 'Мохито', 'holo'],
-      ['candy', '#c8a0ff', 'rare', 'Лаванда', 'clear'],
-      ['slice', '#ffb0d8', 'legendary', 'Сахарная вата', 'gold'],
+      ['donut', '#ff5ca8', 'rare', 'bubblegum', 'glitter'],
+      ['lolli', '#5cffd8', 'rare', 'mojito', 'holo'],
+      ['candy', '#c8a0ff', 'rare', 'lavender', 'clear'],
+      ['slice', '#ffb0d8', 'legendary', 'cottoncandy', 'gold'],
     ],
   },
 ];
@@ -278,7 +286,6 @@ function buildSeason(spec: SeasonSpec): FigurineDef[] {
     key: `s${spec.id}-${shape}`,
     season: spec.id,
     shape,
-    name: shapeName(shape),
     rarity: 'common' as Rarity,
     colors: colorway(spec.bases[i], spec.options),
     material: spec.material,
@@ -292,7 +299,7 @@ function buildSeason(spec: SeasonSpec): FigurineDef[] {
       key: `s${spec.id}-x${i}-${shape}`,
       season: spec.id,
       shape,
-      name: `${shapeName(shape)} · ${variant}`,
+      variant,
       rarity,
       colors: colorway(hex, {
         ...spec.options,
@@ -310,8 +317,6 @@ function buildSeason(spec: SeasonSpec): FigurineDef[] {
 
 export interface Season {
   id: number;
-  name: string;
-  tagline: string;
   theme: SeasonTheme;
   material: Material;
   /** 12 фигурок серии: 8 обычных, затем 4 чейза. */
@@ -324,8 +329,6 @@ export const SEASONS: readonly Season[] = SEASON_SPECS.map((spec) => {
   const figurines = buildSeason(spec);
   return {
     id: spec.id,
-    name: spec.name,
-    tagline: spec.tagline,
     theme: spec.theme,
     material: spec.material,
     figurines,

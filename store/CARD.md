@@ -7,9 +7,13 @@
 
 ## Название
 
-**DROP — витрина коллекций**
+**ВИТРИНКА — собери свою полку**
 
-Короткое: `DROP`
+Короткое: `ВИТРИНКА`
+
+Для англоязычной витрины: **VITRINKA — fill your shelf**, короткое `VITRINKA`.
+Название одно и то же слово в двух начертаниях: игрок, увидевший обложку в
+одной локали и игру в другой, узнаёт её сразу.
 
 ---
 
@@ -36,9 +40,9 @@
 и соревнование в том, кто пройдёт его за меньшее число ходов.
 
 ▸ КОЛЛЕКЦИЯ
-Шесть сезонных серий по двенадцать фигурок: слаймы, котики, мишки, зайки,
-призраки, звёзды, дино и пришельцы. В каждой серии есть редкие перекраски и
-одна легендарная. Блайнд-боксы открываются за монеты, за дубликаты или за
+Шесть сезонных серий по двенадцать фигурок, и у каждой серии свои персонажи:
+неон, плюш, хром, лето, космос, десерт. В каждой серии четыре чейза — редкие
+фигурки с настоящей отделкой: холо, блёстки, прозрачный пластик, металлик. Блайнд-боксы открываются за монеты, за дубликаты или за
 просмотр рекламы — никогда за реальные деньги.
 
 ▸ СЕЗОНЫ
@@ -91,9 +95,60 @@
 | --- | --- |
 | Ориентация | Портретная и альбомная (адаптируется) |
 | Разрешение | Адаптивное |
-| Языки | Русский |
+| Языки | Русский, английский |
 | Онлайн | Не требуется после загрузки |
 | Авторизация | Не требуется |
+
+### Языки
+
+Язык интерфейса определяется через `ysdk.environment.i18n.lang` (§2.14):
+`ru` — русский, всё остальное — английский. Переключателя внутри игры нет
+намеренно: язык принадлежит площадке, а не настройкам игры. В консоли нужно
+отметить оба языка, иначе игра не попадёт в англоязычную витрину.
+
+### Описание для англоязычной витрины
+
+Краткое (до 100 символов):
+
+```
+Sort figures into display cases, open blind boxes and complete seasonal series.
+```
+
+Полное:
+
+```
+Build the perfect shelf.
+
+Blind-box figures are piled up in a heap. One tap picks up the top figure, a
+second one places it onto a matching figure or into an empty case. A case filled
+with a single kind locks behind glass and moves into your collection — together
+with a figure you did not own yet.
+
+▸ THREE MODES
+Campaign — an endless run of levels, from easy five-case boards to serious
+nine-case puzzles. Blitz — sixty seconds, every finished set adds two more, with
+a weekly leaderboard. Daily challenge — the same level for every player, and the
+contest is who solves it in fewer moves.
+
+▸ COLLECTION
+Six seasonal series of twelve figures, each with its own cast: neon, plush,
+chrome, summer, space, dessert. Every series holds four chases — rare figures
+with a real finish: holo, glitter, clear plastic, metallic. Blind boxes open for
+coins, for duplicates or for watching a video — never for real money.
+
+▸ SEASONS
+A new series and a new look every four weeks. A series you complete stays on
+your shelf forever.
+
+▸ FAIR
+No level is ever unsolvable: each one is verified by a solver, and the minimum
+number of moves is known exactly. Figures differ by shape as well as colour, so
+the game plays fine without telling colours apart.
+
+Loads in a couple of seconds, runs on weak phones, remembers your progress.
+```
+
+---
 
 ### Лидерборды
 
