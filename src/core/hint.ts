@@ -20,6 +20,14 @@ export interface Hint {
   to: number;
   /** true — ход лежит на доказанно решающем пути; false — эвристический. */
   optimal: boolean;
+  /**
+   * Перебор дошёл до MAX_THRESHOLD и не нашёл решения — не нехватка
+   * бюджета, а доказательство, что из этого расклада уже не выиграть
+   * (см. NODE_BUDGET/MAX_THRESHOLD ниже). Ход в this — всё ещё лучший по
+   * эвристике, но обещать им прогресс нельзя: вызывающая сторона обязана
+   * завершить партию как тупиковую, а не показать этот ход как подсказку.
+   */
+  deadEnd: boolean;
 }
 
 const NODE_BUDGET = 120_000;
@@ -186,13 +194,19 @@ export function findHint(board: Board, timeBudgetMs = 80): Hint | null {
       const solved = dfs(state, 1, threshold);
       state.shelves[to].pop();
       state.shelves[from].push(species);
-      if (solved) return { from, to, optimal: true };
+      if (solved) return { from, to, optimal: true, deadEnd: false };
       if (exhausted) break;
     }
     if (exhausted) break;
   }
 
   // Бюджет исчерпан — отдаём лучший ход по эвристике.
+  //
+  // exhausted === true: узлы или время кончились раньше, чем перебор охватил
+  // весь диапазон порогов — вывод неубедителен, это просто нехватка бюджета.
+  // exhausted === false: перебор дошёл до MAX_THRESHOLD и НИЧЕГО не нашёл —
+  // строгое доказательство (эвристика допустима), что из этого расклада
+  // выиграть уже нельзя. deadEnd фиксирует именно эту разницу.
   const best = initial[0];
-  return { from: best[0], to: best[1], optimal: false };
+  return { from: best[0], to: best[1], optimal: false, deadEnd: !exhausted };
 }

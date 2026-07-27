@@ -150,7 +150,7 @@ export function showDeadlock(
 
 // ─── Итог блица ───────────────────────────────────────────────────────────
 
-export type BlitzChoice = 'retry' | 'retryAd' | 'leaderboard' | 'menu' | 'share';
+export type BlitzChoice = 'retry' | 'retryAd' | 'leaderboard' | 'menu';
 
 export function showBlitzResult(
   root: HTMLElement,
@@ -165,6 +165,15 @@ export function showBlitzResult(
     rank: number | null;
     freeAttempts: number;
     refillIn: number;
+    /**
+     * Шеринг обрабатывается здесь колбэком, а не как выбор, который
+     * закрывает диалог: после шеринга игрок остаётся на той же карточке
+     * результата. Раньше кнопка звала resolve('share') напрямую, диалог не
+     * закрывался, а вызывающий код в ответ монтировал ВТОРОЙ showBlitzResult
+     * поверх первого — старый оверлей никогда не убирался и оставался на
+     * экране поверх новой игры (см. отчёт QA про застрявшее меню блица).
+     */
+    onShare: () => void;
   }
 ): Promise<BlitzChoice> {
   return new Promise((resolve) => {
@@ -198,7 +207,6 @@ export function showBlitzResult(
 
     let close = () => {};
     const pick = (choice: BlitzChoice) => {
-      if (choice === 'share') return; // шеринг не закрывает диалог
       close();
       resolve(choice);
     };
@@ -222,7 +230,7 @@ export function showBlitzResult(
     }
 
     const shareBtn = button(t('blitz.share'), 'btn btn--ghost btn--wide btn--sm', () => {
-      resolve('share');
+      opts.onShare();
     });
     add(
       actions,
@@ -449,8 +457,11 @@ export function showPause(root: HTMLElement): Promise<PauseChoice> {
  * игра, поэтому гайд не расходится с тем, что игрок увидит через секунду, — и
  * не требует ни одной картинки в сборке.
  *
- * Шаги короткие и их четыре: правило переноса, правило совпадения, закрытие
- * витрины и цель уровня. Пятого правила в игре просто нет.
+ * Шагов пять: правило переноса, правило совпадения, закрытие витрины, цель
+ * уровня и предупреждение о тупике — неудачный порядок ходов может завести
+ * туда, откуда до победы не дойти (см. модалку `showDeadlock`). Без этого
+ * шага игрок узнаёт о тупике только напоровшись на него посреди платной
+ * подсказки — ровно то, на что жаловался QA.
  */
 export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise<void> {
   const a = species[1] ?? species[0];
@@ -493,6 +504,17 @@ export function showTutorial(root: HTMLElement, species: FigurineDef[]): Promise
         tutorialScene([
           { stack: [a, a, a, a], state: 'closed' },
           { stack: [b, b, b, b], state: 'closed' },
+        ]),
+    },
+    {
+      title: t('tutorial.step5.title'),
+      text: t('tutorial.step5.text'),
+      // Обе витрины полны и ни одна пара сверху не совпадает — картинка
+      // тупика, без выдуманного шестого состояния сцены.
+      art: () =>
+        tutorialScene([
+          { stack: [a, b] },
+          { stack: [b, a] },
         ]),
     },
   ];

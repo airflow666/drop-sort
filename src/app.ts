@@ -1003,6 +1003,15 @@ export class App {
       this.profile.addHints(1);
       return;
     }
+    if (hint.deadEnd) {
+      // Солвер доказал: из этого расклада уже не выиграть. Показать hint.from
+      // → hint.to как обычную подсказку значило бы гонять игрока по кругу
+      // (ровно баг из отчёта QA) — вместо этого сразу завершаем партию тем же
+      // экраном, что и обычный тупик. Заряд возвращаем: подсказка не помогла.
+      this.profile.addHints(1);
+      await this.onDeadlock();
+      return;
+    }
     session.usedHint = true;
     this.audio.tap();
     await session.view.showHint(hint.from, hint.to);
@@ -1257,17 +1266,18 @@ export class App {
         rank,
         freeAttempts: this.profile.blitzAttempts,
         refillIn: this.profile.blitzRefillIn,
+        onShare: () => {
+          void (async () => {
+            const text =
+              t('blitz.shareText', { brand: brand(), score, sets }) +
+              (rank !== null ? t('blitz.shareRank', { rank }) : '') +
+              t('blitz.shareCall');
+            const ok = await this.platform.copyText(text);
+            this.toast(ok ? t('toast.copied') : t('toast.copyFailed'));
+          })();
+        },
       });
 
-      if (choice === 'share') {
-        const text =
-          t('blitz.shareText', { brand: brand(), score, sets }) +
-          (rank !== null ? t('blitz.shareRank', { rank }) : '') +
-          t('blitz.shareCall');
-        const ok = await this.platform.copyText(text);
-        this.toast(ok ? t('toast.copied') : t('toast.copyFailed'));
-        continue;
-      }
       if (choice === 'retry') {
         await this.startBlitz();
         return;
@@ -1404,7 +1414,7 @@ export class App {
           if (!session) return false;
           if (session.board.isSolved) return true;
           const hint = findHint(session.board);
-          if (!hint) return false;
+          if (!hint || hint.deadEnd) return false;
           // view читается заново на каждом шаге: в блице уровень сменяется
           // прямо посреди прохождения, и поле подменяется целиком.
           const view = session.view;

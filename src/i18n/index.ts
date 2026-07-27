@@ -210,6 +210,9 @@ const RU = {
     'Когда витрина заполнена одним видом целиком, её запирает стекло. Это готовый сет.',
   'tutorial.step4.title': 'Цель',
   'tutorial.step4.text': 'Закрыть все витрины. Чем меньше ходов — тем больше звёзд и монет.',
+  'tutorial.step5.title': 'Бывает тупик',
+  'tutorial.step5.text':
+    'Неудачным порядком ходов можно зайти туда, откуда до победы уже не дойти. Тогда игра сама предложит начать заново — это не баг, а часть игры.',
   'tutorial.next': 'Дальше',
   'tutorial.skip': 'Пропустить',
   'tutorial.play': 'Играть',
@@ -518,6 +521,9 @@ const EN: Record<Key, string> = {
     'Once a case is filled with a single kind, glass locks it shut. That is a finished set.',
   'tutorial.step4.title': 'The goal',
   'tutorial.step4.text': 'Close every case. The fewer moves, the more stars and coins.',
+  'tutorial.step5.title': 'Dead ends happen',
+  'tutorial.step5.text':
+    'A bad order of moves can lock you in a spot with no way to win. The game will offer a restart right away — that is not a bug, just part of the puzzle.',
   'tutorial.next': 'Next',
   'tutorial.skip': 'Skip',
   'tutorial.play': 'Play',
